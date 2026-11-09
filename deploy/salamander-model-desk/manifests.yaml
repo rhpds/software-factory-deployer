@@ -106,6 +106,10 @@ data:
           vertex_credentials: /etc/gcp/adc.json
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
+    litellm_settings:
+      # IDE clients (VS Code agent mode) send temperature/top_p by default; the Vertex Claude 5 routes
+      # accept neither and LiteLLM answered 400 (8 Nov 2026). Drop what a model does not support instead.
+      drop_params: true
 ---
 # TLS front for the MaaS data path: envoy originates TLS to external
 # models; LiteLLM itself stays plain HTTP on 4000 for in-cluster
