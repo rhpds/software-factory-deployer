@@ -1,7 +1,6 @@
 ---
-- name: pre | Wait for GitOps bootstrap sync
-  ansible.builtin.include_tasks: wait_for_gitops_sync.yml
-  when: wait_for_gitops_bootstrap | default(true) | bool
+- name: pre | Bootstrap namespace and secrets
+  ansible.builtin.include_tasks: bootstrap_namespace.yml
 
 - name: pre | verify cluster is reachable and collect version
   kubernetes.core.k8s_info:

@@ -1,0 +1,52 @@
+---
+# Create namespace and secrets needed by the role
+# This replaces the GitOps bootstrap pattern
+
+- name: bootstrap | Create userinfo namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ userinfo_namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: software-factory-deployer
+
+- name: bootstrap | Create Keycloak admin secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ keycloak_admin_secret }}"
+        namespace: "{{ userinfo_namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: software-factory-deployer
+      type: Opaque
+      stringData:
+        adminUser: "{{ lookup('agnosticd_user_data', 'keycloak_admin_user') }}"
+        adminPassword: "{{ lookup('agnosticd_user_data', 'keycloak_admin_password') }}"
+        consoleUrl: "{{ lookup('agnosticd_user_data', 'keycloak_admin_console') }}"
+
+- name: bootstrap | Create LiteMaaS secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ maas_external_provider_secret }}"
+        namespace: "{{ userinfo_namespace }}"
+        labels:
+          app.kubernetes.io/managed-by: software-factory-deployer
+      type: Opaque
+      stringData:
+        apiUrl: "{{ maas_external_provider_url }}"
+        apiKey: "{{ litellm_virtual_key }}"
+        model: "{{ maas_external_provider_model }}"
+
+- name: bootstrap | Namespace and secrets created
+  ansible.builtin.debug:
+    msg: "Created namespace {{ userinfo_namespace }} with Keycloak and LiteMaaS secrets"
