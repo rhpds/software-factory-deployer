@@ -1,6 +1,9 @@
-# field-content: ordering this workshop through RHDP
+# GitOps Bootstrap: Simplified Secret Creation
 
-This directory is the Helm chart that RHDP's **Field Sourced Content - OpenShift Base** catalog item syncs. It follows the Ansible pattern of https://github.com/rhpds/field-sourced-content-template: OpenShift GitOps creates a Job in `software-factory-deployer`, the Job clones this repository and runs `run_local.yml`, which is the `ocp4_workload_software_factory` workload.
+This directory contains a simplified Helm chart that creates the namespace and secrets needed by the
+`ocp4_workload_software_factory` role. The role itself is called directly from AgnosticV workloads,
+not via a Job. This follows the modern RHDP pattern where GitOps handles prerequisites and AgnosticV
+executes Ansible roles directly.
 
 ## Order parameters
 
