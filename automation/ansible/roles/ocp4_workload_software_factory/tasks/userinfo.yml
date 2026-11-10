@@ -65,7 +65,7 @@
       data: "{{ _userinfo }}"
 
 - name: userinfo | Set agnosticd_user_info for each user
-  agnosticd_user_info:
+  agnosticd.core.agnosticd_user_info:
     user: "{{ item.key }}"
     data:
       password: "{{ item.value }}"
@@ -84,7 +84,7 @@
   loop: "{{ _seat_passwords | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
-  when: agnosticd_user_info is defined
+  when: agnosticd.core.agnosticd_user_info is defined
   no_log: true
 
 - name: userinfo | published (passwords withheld from the log)
