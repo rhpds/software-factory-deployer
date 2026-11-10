@@ -1,0 +1,19 @@
+---
+namespace: software_factory_deployer
+name: automation
+version: 1.0.0
+readme: README.md
+authors:
+  - Red Hat RHDP Team
+description: Ansible collection for deploying The OpenShift Software Factory workshop
+license:
+  - Apache-2.0
+tags:
+  - software_factory
+  - agents
+  - ai
+  - openshift
+  - workshop
+repository: https://github.com/rhpds/software-factory-deployer
+homepage: https://github.com/rhpds/software-factory-deployer
+issues: https://github.com/rhpds/software-factory-deployer/issues
