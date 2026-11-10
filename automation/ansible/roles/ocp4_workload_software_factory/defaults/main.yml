@@ -79,15 +79,11 @@ keycloak_realm: workshop
 keycloak_user_prefix: user
 keycloak_user_password: ""            # generated per-order (lookup('password', ...)) — never static
 
-# Stage selection. A list, or a comma-separated string when passed as an extra-var (the Field
-# Content Job does that). The first RHDP order runs: operators,showroom,userinfo
-software_factory_stages: [operators, kata, gitea, gitops, keycloak_users, rhdh, agent_platform, rhoai_maas, mattermost, quay, seats, mcp_gateway, model_desk, showroom, verify, userinfo]
+# Stage selection. A list, or a comma-separated string when passed as an extra-var.
+# Note: GitOps is installed by ocp4_workload_openshift_gitops (separate workload)
+# Note: Showroom is deployed by ocp4_workload_showroom (official showroom role)
+software_factory_stages: [operators, kata, gitea, keycloak_users, rhdh, agent_platform, rhoai_maas, mattermost, quay, seats, mcp_gateway, model_desk, verify, userinfo]
 cluster_domain: ""                    # derived from ingresses.config.openshift.io/cluster when empty
-
-# Showroom: one lab guide per seat (user1..N), the RHDP multi-user model
-showroom_content_repo: https://github.com/rhpds/software-factory-deployer.git
-showroom_content_ref: main
-showroom_seat_mode: static            # the guide's {seat_mode} attribute
 
 # RHDP userinfo ConfigMap (demo.redhat.com/userinfo) lands in the Job's namespace on RHDP
 userinfo_namespace: "{{ runner_namespace | default(namespace | default(ocp4_workload_software_factory_namespace, true), true) }}"
