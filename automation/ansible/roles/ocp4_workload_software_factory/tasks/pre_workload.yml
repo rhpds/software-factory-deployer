@@ -1,4 +1,8 @@
 ---
+- name: pre | Wait for GitOps bootstrap sync
+  ansible.builtin.include_tasks: wait_for_gitops_sync.yml
+  when: wait_for_gitops_bootstrap | default(true) | bool
+
 - name: pre | verify cluster is reachable and collect version
   kubernetes.core.k8s_info:
     api_version: config.openshift.io/v1

@@ -1,0 +1,25 @@
+---
+# Wait for GitOps bootstrap Application to sync successfully
+# This ensures secrets are created before the role runs
+
+- name: Wait for GitOps bootstrap Application sync
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: software-factory-deployer
+    namespace: openshift-gitops
+  register: r_app_status
+  until:
+    - r_app_status.resources | length > 0
+    - r_app_status.resources[0].status.sync.status is defined
+    - r_app_status.resources[0].status.sync.status == "Synced"
+    - r_app_status.resources[0].status.health.status is defined
+    - r_app_status.resources[0].status.health.status == "Healthy"
+  retries: 60
+  delay: 10
+  when: wait_for_gitops_bootstrap | default(true) | bool
+
+- name: GitOps bootstrap synced
+  ansible.builtin.debug:
+    msg: "GitOps bootstrap Application is Synced and Healthy"
+  when: wait_for_gitops_bootstrap | default(true) | bool
