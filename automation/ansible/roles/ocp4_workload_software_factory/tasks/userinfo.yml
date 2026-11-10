@@ -30,16 +30,6 @@
     label: "{{ item.key }}"
   no_log: true
 
-- name: userinfo | add the per-seat guide URLs
-  ansible.builtin.set_fact:
-    _userinfo: "{{ _userinfo | combine({('showroom_url_' ~ item.key): item.value}) }}"
-  loop: "{{ (_showroom_urls | default({})) | dict2items }}"
-  loop_control:
-    label: "{{ item.key }}"
-
-- name: userinfo | first seat's guide doubles as the headline URL
-  ansible.builtin.set_fact:
-    _userinfo: "{{ _userinfo | combine({'showroom_url': (_showroom_urls | default({})).get(keycloak_user_prefix ~ '1', 'not-deployed')}) }}"
 
 - name: userinfo | namespace
   kubernetes.core.k8s:
@@ -69,7 +59,6 @@
     user: "{{ item.key }}"
     data:
       password: "{{ item.value }}"
-      showroom_url: "{{ (_showroom_urls | default({}))[item.key] | default('') }}"
       openshift_console_url: "{{ _console_url }}"
       openshift_api_url: "{{ _api_url }}"
       gitops_url: "{{ _gitops_url }}"

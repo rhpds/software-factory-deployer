@@ -37,8 +37,6 @@
   when: "'mcp_gateway' in _stages"
 - ansible.builtin.include_tasks: model_desk.yml
   when: "'model_desk' in _stages"
-- ansible.builtin.include_tasks: showroom.yml
-  when: "'showroom' in _stages"
 - ansible.builtin.include_tasks: verify.yml
   when: "'verify' in _stages"
 - ansible.builtin.include_tasks: userinfo.yml

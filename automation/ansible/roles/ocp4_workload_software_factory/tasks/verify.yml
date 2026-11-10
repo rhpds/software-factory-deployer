@@ -14,7 +14,6 @@
     - { name: Developer Hub, url: "https://{{ rhdh_host }}/.backstage/health/v1/readiness", codes: [200] }
     - { name: Mattermost, url: "https://{{ mattermost_host }}/", codes: [200] }
     - { name: Registry, url: "https://{{ _quay_host | default('registry.invalid') }}/api/v1/discovery", codes: [200] }
-    - { name: "Showroom {{ keycloak_user_prefix }}1", url: "{{ (_showroom_urls | default({})).get(keycloak_user_prefix ~ '1', 'https://' ~ cluster_domain) }}/modules/index.html", codes: [200] }
   loop_control: { label: "{{ item.name }}" }
   register: r_verify
   retries: 6
