@@ -1,0 +1,294 @@
+= Module 7: Swap the brain
+include::partial$_attributes.adoc[]
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+// Attributes used by this module (injected by Showroom from lab user data):
+// {user}, {password}, {ocp_version}, {gitops_url}, {mattermost_url}
+
+The brain is one reference in the agent's manifest. Everything the agent is — its purpose, its skill artifacts, its governed tools, its git repository, its Mattermost channel — is unchanged by a brain swap. Only which model answers changes.
+
+When you hired your agent in Module 1, you picked its brain from a menu of *model connections* — brains the platform administrator published, each with an access list saying which roles may use it. You saw it drawn on the constellation's BRAIN ring. In this module you swap that reference: from the frontier Claude model on the platform's connection to a Red Hat-hosted open model, watch OpenShift GitOps propagate the change, confirm the agent still performs the same way, and swap back. The mechanics are Module 2's edit loop: a commit to the agent's gitops repository, a pull request, a merge.
+
+Plan on 20 minutes.
+
+== Learning objectives
+
+By the end of this module, you'll be able to:
+
+* Locate the brain reference — a model connection plus a model name — in the agent's manifest and read it back from the cluster
+* Explain what a ModelConnection is and why the agent never holds a model provider credential
+* Swap the agent to a Red Hat-hosted open model by merging a pull request, and confirm OpenShift GitOps propagated the change
+* Verify that the agent's skill artifacts, governed tools, and git identity are identical after the swap
+* Revert to the frontier model with a git revert
+
+== Exercise 1: Read the current brain reference
+
+The AgentWorkstation resource declares everything the agent runs with: system prompt, skill artifacts, tools, gateway, and brain. You have read the first four in earlier modules. The brain is the same kind of thing — fields in `spec.model`, declared in `base/agentworkstation.yaml`, enforced by the operator.
+
+. Confirm who `oc` is working as — the same identity Module 1 introduced:
++
+[source,bash,role="execute"]
+----
+oc whoami
+----
++
+ifeval::["{seat_mode}" == "self-service"]
+It prints `system:serviceaccount:showroom-{user}:showroom-{user}` — your workbench's service account, an administrator of your project and nothing else, exactly as in Module 1. Every `oc` command in this module runs as it.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+It prints `{user}`. If it prints a `system:serviceaccount:...` name, sign in again with the `oc login` command from the lab details page — the terminal's own service account holds no rights in your workspace.
+endif::[]
+
+. Read the brain reference the agent is currently running with:
++
+// VERIFIED LIVE 2026-08-31: spec.model carries three sub-fields for a
+// connection-based hire — connectionRef (the ModelConnection name),
+// modelName, and provider (the literal `custom`, the vehicle for
+// connection-keyed models). A Module-1 hire on the Claude connection
+// reads: {"connectionRef":"claude-work","modelName":"claude-sonnet-5","provider":"custom"}
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation {user}-assistant -n {user}-agent-workspace \
+  -o jsonpath='{.spec.model}'; echo
+----
++
+The `connectionRef` names a *ModelConnection* — a cluster-scoped resource the platform administrator published. The connection carries the endpoint and the credential reference; the agent carries only the connection's name and a model id. Your workspace does not read that cluster-scoped list. Instead the operator projects into it, as *ModelConnectionOffers*, exactly the connections whose access list admits you — the same rule the Developer Hub applied to your hiring menu in Module 1. List your offers:
++
+// VERIFIED LIVE 2026-09-03 (operator v1.7.71): a seat workspace carries the
+// operator's tenant annotations (agentoffice.ai/user, agentoffice.ai/groups);
+// the offers projected there are the attendee rows only. The cluster-scoped
+// ModelConnection list is Forbidden to the seat's service account.
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get modelconnectionoffers -n {user}-agent-workspace \
+  -o custom-columns=NAME:.metadata.name,KIND:.spec.kind,MODELS:.spec.models[*].id,OFFERED-TO:.spec.offeredTo
+----
++
+Two rows: the frontier connection you hired on (the frontier lane on the Red Hat work subscription) and `{model_swap_connection}` (open models — {model_swap_family} — served by Red Hat's AI Services team). OFFERED-TO names the access-list entry that admitted you. The administrator's personal lanes exist on this cluster and are not in your workspace: the platform's full list is an administrator's view —
++
+[source,bash,role="execute"]
+----
+oc get modelconnections
+----
++
+— is refused for your workbench. The offer is not a courtesy listing, either. The operator renders a brain into your gateway only if your workspace was offered it: a manifest naming a connection you were not offered gets no provider block and no projected key, and the AgentWorkstation reports `ModelConnectionOffered: False` with the reason. Access is data, in git, like everything else here; what you can see, what you can hire on, and what the operator will run are one declaration.
+
+. Open the agent's repository — use the Source link in the Developer Hub catalog entry for `{user}-assistant`, as you did in Module 2. Navigate to `base/agentworkstation.yaml` and find the `model:` block.
++
+NOTE: The brain reference here and the gateway reference in Module 3 follow the same pattern: the manifest names a reference, the platform holds the credential, and the operator projects it where it is needed. The agent's namespace never contains a model provider key. Swapping the brain is changing the reference.
+
+=== Verify
+
+* `oc get agentworkstation {user}-assistant -n {user}-agent-workspace -o jsonpath='{.spec.model}'` returns a value with a `connectionRef`
+* `oc get modelconnectionoffers -n {user}-agent-workspace` lists the brains offered to your workspace — the one you hired on and `{model_swap_connection}` — and `oc get modelconnections` is refused
+* The `model:` block in `base/agentworkstation.yaml` matches what the cluster reports
+
+== Exercise 2: Swap to the Red Hat-hosted open model
+
+The `{model_swap_connection}` connection fronts open models — {model_swap_family} — hosted by Red Hat's AI Services team and reached through the platform's model gateway. Swapping to it means updating the `model:` block and merging a pull request.
+
+. In the agent's repository web UI, navigate to `base/agentworkstation.yaml` and click the edit icon.
+
+. Replace the `model:` block so it reads exactly:
++
+// VERIFIED LIVE 2026-08-31: this exact swap validated end to end —
+// litemaas connection via the model-desk translator, Qwen3.8-27B
+// answering (UNIFIED-OK probe). Qwen 3.8 is a reasoning model: it
+// spends tokens thinking before it answers, so its replies can take
+// a little longer than the frontier model's. That is part of the
+// comparison.
++
+[source,yaml,subs="+attributes"]
+----
+  model:
+    provider: custom
+    connectionRef: {model_swap_connection}
+    modelName: {model_swap_model}
+----
++
+Leave every other field in the manifest exactly as it is.
+
+. Commit the change to a new branch — use a name like `swap-to-qwen` — and open a pull request to the main branch.
+
+. Read the pull request diff before merging. The diff touches the `model:` block. Every other field in the agent's spec is identical to what Module 1 created: same system prompt, same skill artifacts, same tools, same gateway reference.
+
+. Merge the pull request.
+
+. Open link:{gitops_url}[OpenShift GitOps^] and sign in
+ifeval::["{seat_mode}" == "self-service"]
+with the account you registered — *Log in via OpenShift*, then the *factory-sso* provider, as in Module 1.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+with `{user}` / `{password}`.
+endif::[]
+Find the Application named `{user}-agents-{user}-assistant-agent`.
++
+The sync completes within seconds — by the time you switch tabs it may already show *Synced*. The evidence is in the Application's *History* tab: the revision listed there must match the commit you just merged.
+
+. Read the brain back from the cluster — it changes the moment OpenShift GitOps syncs your merge:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation {user}-assistant -n {user}-agent-workspace \
+  -o jsonpath='{.spec.model}'; echo
+----
++
+The output now names the `{model_swap_connection}` connection and the {model_swap_family} model.
+
+. The operator now re-renders the gateway's model configuration: the `{model_swap_connection}` connection becomes a provider block on the gateway, with its key projected by the operator — never written into your namespace's manifests. This lands in two steps, each of which restarts the gateway pod: first the projected key arrives, then the operator writes the provider block and your agent's new brain into the gateway's running configuration. A message sent in between reaches a gateway that does not have the new brain yet, and the chat answers that the gateway is restarting. Wait for the brain to land — this loop returns the moment the gateway's own configuration names your new model:
++
+// VERIFIED LIVE 2026-09-04 on a self-service seat: the swap takes two gateway
+// restarts about a minute apart; `oc rollout status` alone returns after the
+// first one and a chat in that window got "(no reply)". The persisted config
+// (/home/node/.openclaw/openclaw.json) carries the agent's brain as
+// "primary": "<connection>/<model>"; exec through deploy/ fails while a pod
+// restarts, which is exactly what keeps the loop waiting.
++
+[source,bash,role="execute",subs="+attributes"]
+----
+BRAIN=$(oc get agentworkstation {user}-assistant -n {user}-agent-workspace \
+  -o jsonpath='{.spec.model.connectionRef}/{.spec.model.modelName}')
+until oc exec -n {user}-agent-workspace deploy/{user}-assistant-gateway -c openclaw -- \
+  grep -Eq "\"primary\": *\"$BRAIN\"" /home/node/.openclaw/openclaw.json 2>/dev/null; do
+  echo "waiting for $BRAIN to land in the gateway..."; sleep 5
+done
+oc rollout status deployment/{user}-assistant-gateway -n {user}-agent-workspace --timeout=180s
+echo "brain landed: $BRAIN"
+----
++
+Two or three minutes is normal. `successfully rolled out` after the loop means the AgentGateway pod that serves your agent was started with the new brain.
+
+. Test the agent with a task that requires governed tools. Open link:{mattermost_url}[Mattermost^] (you signed in during Module 1) and find the `{user}-assistant` channel. Send `new session` first to start a clean session — a thread that replied from the frontier model carries history momentum for a turn or two, and the reset is deterministic. Type it without a slash: Mattermost treats a leading `/` as one of its own commands and never posts it.
++
+[source,text]
+----
+new session
+----
++
+Then send the task:
++
+[source,text]
+----
+Using your governed git tools: what is the latest commit message in your gitops repository?
+----
++
+The reply arrives from {model_swap_family}. The agent calls the same `gitea_*` tools through the same gateway, on your seat credential, as it always has. The answer is the commit you just merged — confirming the model, tools, and authentication chain all work together on the new brain. Expect the reply to take a little longer: {model_swap_family} 3.8 reasons before it answers.
+
+// TODO: Add screenshot
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-07-jsonpath-qwen.png[Terminal output showing the oc jsonpath readback returning the litemaas connection and Qwen model after the merge,link=self,window=blank,width=700]
+
+// TODO: Add screenshot
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-07-mattermost-qwen-reply.png[Mattermost channel showing the agent reply from the Qwen model with the latest commit message confirming governed tool use,link=self,window=blank,width=700]
+
+=== Verify
+
+* The Application `{user}-agents-{user}-assistant-agent` shows *Synced* and *Healthy* in OpenShift GitOps
+* The Application's *History* tab shows the latest revision matches the merge commit from this exercise
+* `oc get agentworkstation {user}-assistant -n {user}-agent-workspace -o jsonpath='{.spec.model}'` returns `connectionRef: {model_swap_connection}` and `modelName: {model_swap_model}`
+* The settle loop printed `brain landed: {model_swap_connection}/{model_swap_model}` and `oc rollout status` reported `successfully rolled out` (the gateway restarted twice: key, then brain)
+* After the session reset, the agent answers the commit-message task correctly, and its answer is the commit you merged in this exercise
+
+== Exercise 3: Swap back
+
+A brain revert is a git revert. The same reconciliation loop that applied the swap applies the reversal.
+
+. In the repository web UI, open the commit history for the main branch and find the merge commit from Exercise 2.
+
+. Open that commit and use the *Operations* menu at the top right of the commit page — choose *Revert*. Gitea creates the revert commit for you: commit it to the main branch directly, or on a branch with a pull request you then merge, exactly as in Exercise 2.
++
+NOTE: The revert stays in the browser on purpose. Your workbench terminal holds no git credential — it works as the seat's service account against the cluster, not against the repository — so every repository change in this lab goes through the web UI, where you are signed in as yourself.
+
+. Open link:{gitops_url}[OpenShift GitOps^] and confirm the Application syncs against the revert commit. Check *History* — the latest revision should be the revert.
+
+. Read the brain reference from the cluster:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation {user}-assistant -n {user}-agent-workspace \
+  -o jsonpath='{.spec.model}'; echo
+----
++
+The frontier values are back.
+
+. Wait for the frontier brain to land in the gateway, exactly as in Exercise 2 — the same two restarts apply to a revert:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+BRAIN=$(oc get agentworkstation {user}-assistant -n {user}-agent-workspace \
+  -o jsonpath='{.spec.model.connectionRef}/{.spec.model.modelName}')
+until oc exec -n {user}-agent-workspace deploy/{user}-assistant-gateway -c openclaw -- \
+  grep -Eq "\"primary\": *\"$BRAIN\"" /home/node/.openclaw/openclaw.json 2>/dev/null; do
+  echo "waiting for $BRAIN to land in the gateway..."; sleep 5
+done
+oc rollout status deployment/{user}-assistant-gateway -n {user}-agent-workspace --timeout=180s
+echo "brain landed: $BRAIN"
+----
+
+. Open link:{mattermost_url}[Mattermost^] and send `new session` in the `{user}-assistant` channel, then send the same task:
++
+[source,text]
+----
+new session
+----
++
+[source,text]
+----
+Using your governed git tools: what is the latest commit message in your gitops repository?
+----
++
+The reply arrives from the frontier model. The answer is the revert commit — the newest entry in the repository.
+
+// TODO: Add screenshot
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-07-jsonpath-frontier-restored.png[Terminal output showing the oc jsonpath readback returning the frontier connection value after the revert,link=self,window=blank,width=700]
+
+=== Verify
+
+* The Application's *History* tab shows the revert commit as the latest sync revision
+* `oc get agentworkstation {user}-assistant -n {user}-agent-workspace -o jsonpath='{.spec.model}'` returns the frontier connection value
+* After the session reset, the agent answers the commit-message task correctly from the frontier model, and its answer names the revert commit
+
+== What just happened
+
+AgentWorks offers model independence: choose a model from the vendor's approved list without changing anything else about your agents. That is a real capability, and you just exercised its equivalent — a one-block manifest change, reconciled by OpenShift GitOps, leaving every other agent attribute untouched.
+
+Three things this platform does that a SaaS vendor cannot.
+
+First: *the brains are published, permissioned resources.* A ModelConnection is a cluster resource with an access list — the administrator publishes brains the way a platform team publishes golden paths, and your group determines your menu: the operator projects the brains you were offered into your workspace and renders no other. Nobody handed you a key; you were granted access to a connection.
+
+Second: *the agent held no model credential in either configuration.* The connection's credential lives in the platform's namespace and is projected by the operator onto the gateway. This cluster also runs OpenShift AI Models-as-a-Service (Tech Preview), which governs the same models for direct API consumers — per-user API keys, token budgets per group, and usage metering through one gateway. Model access here is a governed, metered, revocable grant — the same pattern as Module 3's tool credentials.
+
+Third: *the swap crossed provider boundaries, not just model names.* The frontier model runs on a hyperscaler's infrastructure under a Red Hat subscription; {model_swap_family} is an open model served by Red Hat. Same manifest field, same governance, radically different supply chains. The next step on this path — an open model served by vLLM on this very cluster, published through OpenShift AI Models-as-a-Service — uses the same connection mechanics you just exercised: when the platform adds it, your swap target is one more row in `oc get modelconnections`.
+
+OpenShift is the platform ACME runs on AWS, on Azure, on GCP, and on-premise — the same operator-managed stack, the same governance model, the same governed-agents story regardless of where the hardware lives.
+
+The AgentWorks model menu has edges. This platform's menu is whatever the administrator publishes: frontier subscriptions, hosted open models, or models the cluster serves itself. Swapping between them is a diff in git.
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* ✓ Where the brain reference lives in the AgentWorkstation spec — a ModelConnection name plus a model id — and how to read it back with `oc`
+* ✓ What a ModelConnection is: an administrator-published, permissioned brain, offered per workspace by the operator, with the credential held platform-side and projected only where it was offered
+* ✓ How a brain swap is a one-block manifest change, reconciled by OpenShift GitOps, with a brief gateway reload and no credential change in the agent's namespace
+* ✓ How the same governance covers frontier subscriptions and hosted open models — and extends to cluster-served models through OpenShift AI Models-as-a-Service
+
+== Module summary
+
+The agent's brain is a reference. You changed it with a pull request and changed it back with a revert. Skill artifacts, governed tools, git identity, and the Mattermost channel were never part of the change.
+
+Module 8 closes the lab where the agent's commands actually run: you test the egress cage around your seat with a prompt-injection exfiltration, then move your agent's gateway into a lightweight VM with one line of git, and finish with the honest gap list against AgentWorks' surface area, none of which is in trust, governance, or deployment reach.
+
+////
+Assets needed (capture against the live environment):
+
+. content/modules/ROOT/assets/images/module-07-jsonpath-qwen.png — Terminal output showing the oc jsonpath readback of spec.model after the Exercise 2 merge, with connectionRef litemaas and modelName {model_swap_model} visible
+. content/modules/ROOT/assets/images/module-07-mattermost-qwen-reply.png — Mattermost channel (after a `new session` reset) showing the agent's correct answer to the commit-message task from {model_swap_family}, with the commit message from the Exercise 2 merge visible
+. content/modules/ROOT/assets/images/module-07-jsonpath-frontier-restored.png — Terminal output showing the oc jsonpath readback after the Exercise 3 revert, with the frontier connection value restored
+////

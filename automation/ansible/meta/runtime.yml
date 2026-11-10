@@ -1,0 +1,3 @@
+---
+# Ansible collection runtime metadata
+requires_ansible: '>=2.15'

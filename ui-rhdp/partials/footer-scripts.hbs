@@ -1,0 +1,21 @@
+<script defer src="{{uiRootPath}}/js/vendor/clipboard.js"></script>
+<script defer src="{{uiRootPath}}/js/site.js"></script>
+<script defer src="{{uiRootPath}}/js/vendor/highlight.js"></script>
+{{#if env.SITE_SEARCH_PROVIDER}}
+{{> search-scripts}}
+{{/if}}
+
+{{!-- Progress beacon: tells the hub which guide page is open (view), that it is
+     still open (beat, every minute while the tab is visible) and when it is left.
+     Same-origin, behind the seat's own sign-in; the seat's router forwards it. --}}
+<script>
+(function () {
+  if (!navigator.sendBeacon) return;
+  var page = location.pathname, title = document.title;
+  function send(ev) { try { navigator.sendBeacon('/api/progress', JSON.stringify({ ev: ev, path: page, title: title })); } catch (e) {} }
+  send('view');
+  setInterval(function () { if (document.visibilityState === 'visible') send('beat'); }, 60000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') send('leave'); });
+  window.addEventListener('pagehide', function () { send('leave'); });
+})();
+</script>

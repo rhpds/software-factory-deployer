@@ -1,0 +1,28 @@
+// Shared lab attributes — values injected by Showroom user data (AgnosticV must supply all of these).
+:console_url: {openshift_console_url}
+:api_url: {openshift_api_url}
+:user: {user}
+:password: {password}
+:devhub_url: {devhub_url}
+:gitops_url: {gitops_url}
+:ocp_version: {ocp_version}
+:mattermost_url: {mattermost_url}
+// seat_mode: "self-service" (set by the factory hub's provisioner in user data) or "seat" (default: instructor/RHDP-provisioned).
+// Pages use ifeval on it so a reader only ever sees instructions for their own seat.
+:seat_mode: seat
+:artifact_registry: quay-quay-quay-test.apps.salamander.aimlworkbench.com
+:registry_org: deanpeterson
+// ^ the registry namespace (organization) holding the skill artifacts and the seats' images.
+//   RHDP orders: the deployer sets both from the cluster's own Quay (artifact_registry, registry_org).
+// ^ the cluster's own container registry serving skill artifacts; when the
+//   workshop moves clusters, the deployer mirrors the artifact repos there
+//   (skopeo copy, digests preserved) and this is the only line that changes.
+:gitea_url: https://gitea-gitea.apps.salamander.aimlworkbench.com
+// ^ in-cluster Gitea; provisioning overrides this per environment.
+
+// Module 7 swaps the agent's brain onto this published connection. One
+// place to change when the platform renames or replaces it; the module
+// text and its commands read these, never a literal name.
+:model_swap_connection: litemaas
+:model_swap_model: Qwen3.8-27B
+:model_swap_family: Qwen

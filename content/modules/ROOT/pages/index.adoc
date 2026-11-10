@@ -1,0 +1,120 @@
+= The OpenShift Software Factory: Agents as Staff
+
+Welcome to the OpenShift Software Factory workshop.
+
+image::https://img.youtube.com/vi/YY8gBiedkdU/maxresdefault.jpg[Video walk-through of the whole workshop on YouTube,link=https://youtu.be/YY8gBiedkdU?si=FTjU_27zW_AKBeah,window=_blank,width=480]
+
+*Extra help, any time.* Every module of this workshop is walked through in this video (57 minutes). If you get stuck, https://youtu.be/YY8gBiedkdU?si=FTjU_27zW_AKBeah[open it in another tab^] and follow along with the module you are on.
+
+ACME Financial wants what AgentWorks sells (AgentWorks is fictional: a composite of the commercial AI-development-agent platforms): AI development agents that plan, code, and ship real work. The platform team wants it too, right up to the fine print. A vendor control plane would hold the organization's credentials. Agent activity would be audited in someone else's system. Code would ship through a supply chain the team does not own. For a regulated financial company, that is 3 non-starters in a single purchase order.
+
+This workshop takes the other path. You build the equivalent capability on the OpenShift platform ACME already governs, then you put it to work. You hire agents through Red Hat Developer Hub, govern every tool call at a Model Context Protocol (MCP) gateway, deliver know-how as versioned packs, run headless agents inside pipelines, and finish by shipping a microservice to production, with an agent doing the work.
+
+A single idea carries the whole lab: *an agent is a workload*. It is declared in git, reconciled by OpenShift GitOps, governed at the gateway, and audited like everything else on the cluster. The workplace is the value. The brain (the model) is a choice, and in Module 7 you swap it without touching anything else.
+
+== What you'll learn
+
+In this workshop, you will:
+
+* Provision a governed AI agent from a Red Hat Developer Hub template and trace everything it created in git
+* Govern agent tool access through an MCP gateway with per-call authorization and a full audit trail
+* Deliver know-how to an agent as a versioned skill artifact and watch its behavior change
+* Run a headless agent inside a Tekton pipeline with autonomy set by gateway profile
+* Ship a microservice to production through the agent-driven supply chain (build, sign, scan, promote)
+* Swap the agent's model between a frontier endpoint and a sovereign in-cluster vLLM without touching anything else
+
+== Workshop agenda
+
+The workshop runs as 8 modules, each anchored to something you do in the environment:
+
+[cols="2,5,1",options="header"]
+|===
+|Module |What you do |Time
+
+|1. Hire an agent
+|Type a single sentence into a Red Hat Developer Hub template. Review the wiring the platform creates: skills, tools, gateway, brain. The agent is live in about 2 minutes.
+|~30 min
+
+|2. The agent is in git
+|Open the agent's repository. Change its prompt through a pull request, watch OpenShift GitOps reconcile the change, then roll it back.
+|~25 min
+
+|3. Governed tools
+|Call a tool through the MCP gateway as the agent. Confirm the credential is not in the agent's environment, then read the audit line for your call.
+|~30 min
+
+|4. Teach with a skill artifact
+|Install a versioned skill pack on the agent. Re-run a task and watch the agent follow the procedure it just learned.
+|~30 min
+
+|5. Headless agent in the pipeline
+|Run an agent as a task inside a Tekton PipelineRun. Its autonomy tier is the gateway profile bound to that run.
+|~30 min
+
+|6. Ship to production (capstone)
+|File an intent with the ops manager. A dev agent scaffolds a microservice from a golden-path template; the pipeline builds, signs, and scans it; OpenShift GitOps promotes it. Then the loop closes: the new service is registered behind the MCP gateway, and the agent that asked for it calls it as a governed tool to finish the original task — you read that call's audit line. The factory's output just became the factory's new capability.
+|~60 min
+
+|7. Swap the brain
+|Change the agent's model reference from a frontier endpoint to a sovereign in-cluster vLLM. Re-run Module 4's task. Nothing else changed.
+|~20 min
+
+|8. Sandbox the agent
+|Compare the result with AgentWorks, feature by feature. Identify which gaps remain, and why none of them are trust, governance, or deployment reach.
+|~15 min
+|===
+
+== Who this is for
+
+This workshop is designed for platform engineers, architects, and technical sellers who need to evaluate (or build) AI development agents under enterprise governance. You are treated as a competent platform person seeing agents-as-workloads for the first time: every agent concept arrives through objects you already know, such as git repositories, custom resources, pipelines, and routes.
+
+**Experience level**: Intermediate
+
+== Prerequisites
+
+Before starting this workshop, you should be able to:
+
+* Navigate the OpenShift web console and run `oc` commands in a terminal
+* Read YAML and recognize core Kubernetes objects: Deployments, custom resources, operators
+* Work a git pull request end to end: branch, commit, review, merge
+
+Helpful but not required:
+
+* Experience with OpenShift Pipelines or another CI system
+* Experience with OpenShift GitOps or another git-driven delivery workflow
+
+No prior experience with AI agents, MCP, or model serving is required. The workshop introduces each concept at the point you use it.
+
+== Workshop environment
+
+Your environment is a multi-user Red Hat OpenShift {ocp_version} cluster with the software factory already installed:
+
+* **Red Hat Developer Hub**: the software catalog and the template you hire agents from
+* **OpenShift GitOps** (based on Argo CD): reconciles every agent and application from git
+* **OpenShift Pipelines** (based on Tekton): the supply chain that builds, signs, and scans what agents produce
+* **MCP gateway**: the control point every agent tool call passes through
+* **Model endpoints**: a frontier model and a sovereign in-cluster vLLM, ready to swap
+
+You will have access to:
+
+* OpenShift console: {openshift_console_url}
+* Red Hat Developer Hub: {devhub_url}
+* OpenShift GitOps: {gitops_url}
+* Username: {user}
+* Password: {password}
+
+The same username and password work across all 3 consoles.
+
+NOTE: All environment details and credentials are available in the lab interface.
+
+== Estimated time
+
+Plan on approximately **3.5 hours** of hands-on work. Module timings are estimates; Module 6, the capstone, is the longest single block. Every module ends in a verifiable state, so you can break between modules without losing your place.
+
+You can work at your own pace.
+
+== Get started
+
+Move to the next page in the navigation for a short overview of how the pieces fit together, then hire your first agent in Module 1.
+
+include::ROOT:nav.adoc[]

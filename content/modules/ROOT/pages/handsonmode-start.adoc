@@ -1,0 +1,39 @@
+= Hands-On Mode
+include::partial$_attributes.adoc[]
+:page-role: landing
+
+ifdef::edition-self[]
+
+You just watched something get built on a real cluster. This is where you stop watching.
+
+Every course here runs on live infrastructure — a real OpenShift cluster, real agents, real pipelines, a seat of your own. Nothing is a recording, nothing is mocked, and everything you break resets.
+
+== Courses
+
+=== The Software Factory: Agents as Staff
+
+Hire an AI agent through a golden-path template, change its behavior with a pull request, govern its tool calls through an MCP gateway, teach it with versioned skill artifacts, run it headless in a pipeline, and finish by shipping a real microservice — commissioned in chat, built and signed by the supply chain, and consumed back as a governed tool by the agent that asked for it.
+
+Eight modules, roughly a half day at your own pace.
+
+xref:index.adoc[Start the course →]
+
+[#get-a-seat]
+== Get a seat
+
+Seats are live environments and they are yours on sign-in: go to https://handsonmode.ai[handsonmode.ai], pick the workshop, and sign in (GitHub is the easy path). The platform builds your environment while you read the overview.
+
+Each seat is yours for the duration: your own agent workspace, your own git org, your own namespace — isolated from every other seat on the cluster.
+
+[#help]
+== Stuck? Say so.
+
+The *Help* tab at the top of every seat opens the help desk: an agent hired with the same Developer Hub template this workshop teaches, living in git, its tools behind the same governed gateway. It can see your own seat (and only yours), so it looks before it asks: which module you are on, what your seat shows, what to do next. A person reads every transcript.
+
+Prefer to watch first? The whole course is walked through on video, module by module: https://youtu.be/YY8gBiedkdU?si=FTjU_27zW_AKBeah[Agents as Staff on YouTube^] (57 minutes).
+
+endif::edition-self[]
+
+ifndef::edition-self[]
+This page belongs to the Hands-On Mode edition. xref:index.adoc[Go to the workshop home.]
+endif::edition-self[]

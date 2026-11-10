@@ -1,0 +1,92 @@
+---
+# RHDP integration: a ConfigMap labelled demo.redhat.com/userinfo is read back by the
+# platform and shown to the person who ordered. Values must be strings.
+- name: userinfo | registry facts (stand-alone run)
+  ansible.builtin.include_tasks: registry_facts.yml
+  when: _quay_host is not defined
+
+- name: userinfo | base data
+  ansible.builtin.set_fact:
+    _userinfo:
+      demo_title: "OpenShift Software Factory - Agents as Staff"
+      access_instructions: "Open your seat's lab guide (showroom_url_userN below) and follow Module 1. Each seat signs in everywhere (console, Developer Hub, GitOps, Gitea, chat) as userN with password_userN from this page."
+      openshift_console_url: "{{ _console_url }}"
+      openshift_api_url: "{{ _api_url }}"
+      gitops_url: "{{ _gitops_url }}"
+      cluster_domain: "{{ cluster_domain }}"
+      ocp_version: "{{ _ocp_version }}"
+      num_users: "{{ num_users | string }}"
+      stages_run: "{{ _stages | join(',') }}"
+      gitea_url: "{{ 'https://' ~ gitea_host if (gitea_host | default('') | length > 0) else 'not-deployed' }}"
+      registry_url: "{{ 'https://' ~ _quay_host if (_quay_host | default('') | length > 0) else 'not-deployed' }}"
+      devhub_url: "{{ _devhub_url | default('not-deployed') }}"
+      mattermost_url: "{{ _mattermost_url | default('not-deployed') }}"
+
+- name: userinfo | add the per-seat passwords (one per attendee, the same one every surface takes)
+  ansible.builtin.set_fact:
+    _userinfo: "{{ _userinfo | combine({('password_' ~ item.key): item.value}) }}"
+  loop: "{{ _seat_passwords | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+
+- name: userinfo | add the per-seat guide URLs
+  ansible.builtin.set_fact:
+    _userinfo: "{{ _userinfo | combine({('showroom_url_' ~ item.key): item.value}) }}"
+  loop: "{{ (_showroom_urls | default({})) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: userinfo | first seat's guide doubles as the headline URL
+  ansible.builtin.set_fact:
+    _userinfo: "{{ _userinfo | combine({'showroom_url': (_showroom_urls | default({})).get(keycloak_user_prefix ~ '1', 'not-deployed')}) }}"
+
+- name: userinfo | namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ userinfo_namespace }}"
+
+- name: userinfo | ConfigMap for RHDP
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: software-factory-userinfo
+        namespace: "{{ userinfo_namespace }}"
+        labels:
+          demo.redhat.com/userinfo: ""
+          demo.redhat.com/application: software-factory
+      data: "{{ _userinfo }}"
+
+- name: userinfo | Set agnosticd_user_info for each user
+  agnosticd_user_info:
+    user: "{{ item.key }}"
+    data:
+      password: "{{ item.value }}"
+      showroom_url: "{{ (_showroom_urls | default({}))[item.key] | default('') }}"
+      openshift_console_url: "{{ _console_url }}"
+      openshift_api_url: "{{ _api_url }}"
+      gitops_url: "{{ _gitops_url }}"
+      gitea_url: "{{ 'https://' ~ gitea_host if (gitea_host | default('') | length > 0) else 'not-deployed' }}"
+      devhub_url: "{{ _devhub_url | default('not-deployed') }}"
+      mattermost_url: "{{ _mattermost_url | default('not-deployed') }}"
+      registry_url: "{{ 'https://' ~ _quay_host if (_quay_host | default('') | length > 0) else 'not-deployed' }}"
+      artifact_registry: "{{ _artifact_registry | default('') }}"
+      registry_org: "{{ _registry_org | default('') }}"
+      ocp_version: "{{ _ocp_minor }}"
+      cluster_domain: "{{ cluster_domain }}"
+  loop: "{{ _seat_passwords | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: agnosticd_user_info is defined
+  no_log: true
+
+- name: userinfo | published (passwords withheld from the log)
+  ansible.builtin.debug:
+    msg: "{{ _userinfo | dict2items | rejectattr('key', 'match', '^password_') | items2dict }}"

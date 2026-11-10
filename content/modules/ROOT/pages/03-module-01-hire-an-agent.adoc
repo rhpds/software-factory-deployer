@@ -1,0 +1,262 @@
+= Module 1: Hire an agent
+include::partial$_attributes.adoc[]
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+// Attributes used by this module (injected by Showroom from lab user data):
+// {user}, {password}, {ocp_version}, {devhub_url}, {gitops_url}
+
+ACME Financial wants what AgentWorks sells: AI development agents that deliver working software, not chat transcripts. The platform team vetoed the vendor pitch for 3 reasons. Credentials would leave the building. The audit trail would live in someone else's control plane. The software supply chain would answer to a vendor roadmap.
+
+Your job in this lab is to prove ACME does not have to choose. You will build the same capability on the Red Hat OpenShift {ocp_version} cluster ACME already governs, then put it to work.
+
+In AgentWorks terms, this module is onboarding a hosted agent. On this platform, the hire is a pull request: the agent is an OpenShift workload, and everything it receives (purpose, skills, tool access, and model) is declared in git before it runs. In about 2 minutes you will have a working agent, and you will be able to point at every object that made it exist.
+
+Plan on 30 minutes: hire the agent, watch the platform onboard it, then read the wiring and make first contact.
+
+== Learning objectives
+
+By the end of this module, you'll be able to:
+
+* Provision a governed AI agent from a Red Hat Developer Hub golden-path template
+* Trace the objects the template created: a git repository, an OpenShift GitOps Application, an AgentWorkstation resource, and a catalog entry
+* Map each form input (purpose, skills, gateway, and model) to the declared configuration the agent runs with
+* Confirm the agent is live by sending it a message and reading its reply
+
+== Exercise 1: Hire the agent
+
+Hiring a developer at ACME takes weeks of process. Hiring an agent is 1 form, and the most important field is 1 sentence.
+
+Red Hat Developer Hub is ACME's front door for anything a developer requests from the platform. Golden-path templates keep those requests inside guardrails the platform team defined. The agent template is exactly that: a governed way to say "staff this role."
+
+ifeval::["{seat_mode}" == "self-service"]
+. Open link:{devhub_url}[Red Hat Developer Hub^] and sign in with the account you registered.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. Open link:{devhub_url}[Red Hat Developer Hub^] and sign in as `{user}` with password `{password}`.
+endif::[]
+
+. In the left navigation, click *Catalog*, then click the *Self-service* button at the top right of the catalog page. This is the catalog of golden-path templates.
+
+. Find the *OpenClaw Agent* template and click *Choose*.
++
+// The dash in the template title below mirrors the live Developer Hub label verbatim.
+You will also see *OpenClaw Agent (advanced -- every option)* in the list. That variant exposes every field the platform is about to wire for you: identity, model backend, skills, knowledge bases, gateway, deployment. This lab hires with the simple template and inspects that wiring after the fact, which is the point: the platform makes the safe choices so one sentence is enough.
+
+. The form asks one question: *What will your agent be doing?* Write the brief you would give a new hire on day 1, and include the name you want the agent to carry:
++
+[source,text,subs="+attributes"]
+----
+You are {user}-assistant, ACME Financial's platform assistant: investigate questions about this OpenShift cluster and document what you find.
+----
+
+. Click *Suggest*. The platform reads your brief and composes the hire: it picks the skills, tools, and knowledge it needs from the catalog, drafts the agent's identity, and wires the defaults — the gateway its tool calls route through and the model that serves as its brain. That catalog is federated live from the platform's artifact registry, where skills, governed tool definitions, and whole capability packs ship as versioned artifacts with declared dependencies — so Suggest assembles a working agent, not a list of files. The composed plan appears under the field. Read it: this is what you are about to hire. Skills are versioned know-how packs (Module 4 teaches with one). The gateway is a Model Context Protocol (MCP) gateway, the control point every tool call routes through (Module 3 governs it). The model is a swappable endpoint (Module 7 swaps it without touching anything else).
++
+NOTE: The platform derives the agent's name from your brief. Naming it explicitly, as above, keeps the rest of this lab's commands aligned; if your agent ends up with a different name, substitute it wherever `{user}-assistant` appears.
+
+. The composer keeps talking. Under your brief, the input becomes a short chat, and its first message asks whether the hire looks right. This is a conversation with the same brain that composed the hire, and it edits exactly what you ask: tell it to remove a specific skill and only that skill goes; ask it to add coverage for something and it adds the one artifact that covers it (plus anything that artifact requires). Questions are safe — ask one now:
++
+[source,text]
+----
+is there a skill for incident response?
+----
++
+It answers from the live catalog and changes nothing until you tell it to. Every change you do make redraws the constellation and the wiring below in place — refining the composition, never regenerating it. When a suggestion is not quite right, this chat is the fix; rewriting the brief and starting over is the last resort, not the first.
+
+. Check the composed skill list for `platform-incident-triage`. If the composer picked it, tell it to remove that one skill: `remove platform-incident-triage` — Module 4 teaches it to your agent deliberately, and the before-and-after there needs an agent that has not seen it. Only that row goes; everything else stays.
+
+. Read the *constellation* that appears — the agent, drawn. The core is its identity; the BRAIN ring names its model; each skill artifact is a wedge of stadium rows where depth means how much it knows and hollow rim dots mean a capability whose cluster prerequisite is not deployed here; memory shows the seeded workspace documents; tools and the team orbit outside. Click anything for details — artifacts marked *»* open into their own orbit (double-click), showing what is inside a bundle. You will meet several of these rings again: Module 3 governs the tools, Module 4 teaches with a skill artifact, Module 7 swaps the brain.
+
+. In the *Brain* section, a connection is already selected: the platform pre-selects its default brain for your role, and you keep it unless your host says otherwise. Under each connection sit the models it publishes — the first is its default, and clicking another changes it. The menu is not hardcoded: each entry is a *model connection* the platform administrator published with an access list, so the brains you see are the brains your role is granted. Module 7 swaps this reference without touching anything else.
+
+. Click *Review*, check the summary of what Suggest composed, and click *Create*.
+
+The template run executes in front of you. It creates a git repository for the agent, registers the agent in the catalog, and hands the rollout to Red Hat OpenShift GitOps.
+
+image::module-01-agent-constellation.png[The composed hire: the brief has become a chat whose opener asks whether the hire looks right, above the constellation — GPT-5.6 Sol brain ring, six skill-artifact wedges with strength bars (platform-incident-triage at 15% live with a hollow rim), memory documents, the new team ring — and the identity and gateway below,link=self,window=blank,width=700]
+
+=== Verify
+
+The run page reports each scaffolding step as it completes:
+
+* Every step finishes with no errors
+* The run summary links to the agent's new git repository
+* The run summary links to the agent's new catalog entry
+
+If a step fails, open that step's log on the same page and read the error before retrying.
+
+== Exercise 2: Watch the platform onboard your hire
+
+The template did not deploy anything itself. It wrote the agent's configuration to git and created an OpenShift GitOps Application that points at it. OpenShift GitOps (Argo CD under the hood) reconciles continuously: it reads the repository and makes the cluster match. The repository is the employment contract; the cluster is its current enforcement.
+
+ifeval::["{seat_mode}" == "self-service"]
+. Open link:{gitops_url}[OpenShift GitOps^] and click *Log in via OpenShift*. The OpenShift login page offers several identity providers -- choose *factory-sso*, the one your workshop account lives in, and sign in with the account you registered. The other providers belong to the platform team and will not know you.
++
+image::module-01-login-factory-sso.png[The OpenShift "Log in with" page listing kube:admin, htpasswd, workshop and factory-sso, with factory-sso highlighted as the provider to choose,link=self,window=blank,width=700]
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. Open link:{gitops_url}[OpenShift GitOps^] and click *Log in via OpenShift*. The OpenShift login page offers several identity providers -- choose *workshop* and sign in with your OpenShift credentials (`{user}` / `{password}`). The other providers belong to the platform team and will not know you.
++
+image::module-01-login-workshop.png[The OpenShift "Log in with" page listing kube:admin, htpasswd, workshop and factory-sso, with workshop highlighted as the provider to choose,link=self,window=blank,width=700]
+endif::[]
+
+. Find the Application for your agent (search for `{user}-assistant`) and open it. Watch the resource tree while it syncs: the namespace, the AgentWorkstation resource, and the supporting objects appear as OpenShift GitOps applies them.
+
+. In the terminal, confirm who `oc` is working as:
++
+[source,bash,role="execute"]
+----
+oc whoami
+----
++
+// Self-service seats: the terminal IS the seat's service account (admin of the
+// workspace, never expires). Fixed seats: the terminal starts as its pod's
+// service account, which holds nothing in the workspace — the attendee signs
+// in as {user} with the oc login step on the lab details page, and every
+// module assumes that login. Verified live 2026-09-03 on both seat types.
+ifeval::["{seat_mode}" == "self-service"]
+It prints `system:serviceaccount:showroom-{user}:showroom-{user}` — your workbench's service account, an administrator of your project and nothing else, with a session that never expires. Every `oc` command in this lab runs as it; your own login (`{user}`) is for the web consoles.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+It prints `{user}`. If it prints a `system:serviceaccount:...` name instead, you have not signed in yet: run the `oc login` command from the lab details page before continuing — the service account the terminal starts with holds no rights in your workspace.
+endif::[]
+
+. Watch the AgentGateway pod start:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pods -n {user}-agent-workspace
+----
++
+NOTE: Your agent runs in your own namespace, `{user}-agent-workspace` — nobody else's agents share it. It carries exactly the name you declared in your brief. `oc get agentworkstations -n {user}-agent-workspace` lists precisely one workstation: yours.
++
+Re-run the command until the pod reports `Running`. The first start pulls the agent image, so allow a minute or 2. Expected output (the hash suffixes will differ):
++
+[subs="+attributes"]
+----
+NAME                                      READY   STATUS    RESTARTS   AGE
+{user}-assistant-gateway-c77bb699b-dzv5q  1/1     Running   0          2m
+----
++
+The pod is named after the agent's gateway — the runtime your agent lives in. `READY` counts its containers: `1/1` for a brain served through a model connection, `2/2` when a subscription brain adds a credential-sync sidecar. It is normal to see this pod replaced once shortly after first start (the AGE resets): the operator finishes wiring the model credential and restarts it one time.
+
+// TODO: Add screenshot
+// TODO screenshot: capture the OpenShift GitOps Application view as an attendee
+// (their single app, Synced/Healthy resource tree) and restore:
+// image::module-01-gitops-application.png[OpenShift GitOps Application view showing the agent's resource tree fully synced and healthy,link=self,window=blank,width=700]
+
+=== Verify
+
+* The Application for `{user}-assistant` reports *Synced* and *Healthy*
+* The AgentWorkstation resource appears in the Application's resource tree
+* `oc get pods -n {user}-agent-workspace` shows the AgentGateway pod with STATUS `Running`
+
+== Exercise 3: Read the wiring and make first contact
+
+On a vendor control plane, you trust that onboarding happened correctly. Here you can read it. Everything you granted in the form is now a declared field on 1 Kubernetes resource, and the catalog shows the same wiring to every developer at ACME.
+
+. In Developer Hub, open the *Catalog* and find `{user}-assistant`. Open the entry and review what the platform recorded about your hire: its purpose, the skills you granted, the gateway it calls tools through, and the model it thinks with.
+
+. In the terminal, list the AgentWorkstation resources in your agent namespace:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation -n {user}-agent-workspace
+----
++
+Your agent appears in the list.
+
+. Read the full resource the template created:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation <your-agent> -n {user}-agent-workspace -o yaml
+----
+
+. In the `spec`, find the values that came from your form: the purpose sentence you wrote, the skills you granted, the gateway reference, and the model reference. Nothing else configured this agent. What you granted is what it has.
+
+. Make first contact. Open the agent's chat channel and send it a message:
++
+[source,text]
+----
+Introduce yourself. What is your purpose, and which skills were you hired with?
+----
++
+The template created the channel at hire time: open link:{mattermost_url}[Mattermost^], sign in (the note below shows how), and find the channel named after your agent — it is in the left sidebar under *Channels* (you land in Town Square first; the system join messages there are just onboarding noise).
++
+ifeval::["{seat_mode}" == "self-service"]
+[NOTE]
+====
+Chat uses your workshop login -- there is no separate chat password. The first time you open Mattermost it shows the workshop chat sign-in page. Click *Sign in with your workshop account*:
+
+image::module-01-chat-signin.png[The workshop chat sign-in page with its single red button labelled Sign in with your workshop account,link=self,window=blank,width=560]
+
+If Gitea then asks how to sign in, choose *Sign in with keycloak* -- not the username and password form:
+
+image::module-01-gitea-keycloak.png[The Gitea sign-in page with the Sign in with keycloak button highlighted beneath the username and password form,link=self,window=blank,width=560]
+
+If you land on Mattermost's own login form instead, reload the page: the workshop chat sign-in page comes back.
+====
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+[NOTE]
+====
+The first time you open Mattermost it shows the workshop chat sign-in page. Click *Sign in with your workshop account*; if Gitea then asks how to sign in, use the username and password form with `{user}` / `{password}`.
+
+image::module-01-chat-signin.png[The workshop chat sign-in page with its single red button labelled Sign in with your workshop account,link=self,window=blank,width=560]
+
+If you land on Mattermost's own login form instead, reload the page: the workshop chat sign-in page comes back.
+====
+endif::[]
+
+. Read the reply. The agent answers in its channel, and its answer reflects the purpose sentence and the skills you saw in the resource.
+
+// TODO: Add screenshot
+image::module-01-first-contact.png[Chat channel showing the agent's first reply describing its purpose and granted skills,link=self,window=blank,width=700]
+
+=== Verify
+
+* The catalog entry for `{user}-assistant` shows the agent's purpose, skills, gateway, and model
+* The AgentWorkstation `spec` contains the same values you entered in the form
+* The agent replied in its channel, and the reply matches the purpose you wrote
+
+== What just happened
+
+The form produced 4 objects. Together they are the entire hire:
+
+* *A git repository*: the agent's workspace and configuration, and the source of truth. Changing the agent means changing this repository. Module 2 does exactly that with a pull request.
+* *An OpenShift GitOps Application*: continuous reconciliation from the repository to the cluster. The rollout you watched was not a deploy script, and it never stops enforcing what git declares.
+* *An AgentWorkstation resource*: the Kubernetes declaration of the agent itself. The platform operator turns this declaration into the running pod you watched start.
+* *A Developer Hub catalog entry*: the staff directory record. Anyone at ACME can see who this agent is, what it can do, and how it is wired.
+
+Note what is missing. The form never asked for credentials, and none were delivered to the agent. Tool access is a reference to a gateway, not a bundle of secrets. Module 3 proves that claim by searching the agent's environment for credentials and finding none.
+
+The AgentWorks comparison is direct: onboarding a hosted agent and hiring this agent both take about 2 minutes. The difference is where the artifacts live. Here, every object above sits on ACME's cluster, in ACME's git, under ACME's RBAC, backup, and audit. There is no vendor control plane in this story.
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* ✓ How a Developer Hub golden-path template turns "hire an agent" into a governed, repeatable request
+* ✓ Why the agent's git repository, not the running pod, is the source of truth for what the agent is
+* ✓ How the AgentWorkstation resource declares purpose, skills, gateway, and model, and how the platform turns that declaration into a running workload
+* ✓ Where to verify what an agent was granted: the catalog entry for people, the resource `spec` for the cluster
+
+== Module summary
+
+You hired an agent the way ACME wants to hire all of them: through a governed template, with every grant declared in git, visible in the catalog, and live in about 2 minutes. Nothing about the hire is a mystery, and nothing about it left the platform ACME already trusts.
+
+Module 2 builds on that fact. Because the agent lives in git, you will change its behavior with a pull request, watch OpenShift GitOps reconcile the change onto the cluster, and roll it back the same way.
+
+////
+Assets needed (capture against the live environment):
+
+. content/modules/ROOT/assets/images/module-01-agent-constellation.png - the composed hire after Suggest: refine chat (opener + input) above the constellation (brain ring, skill-artifact wedges with a 15%-live example, memory docs, new team), identity below (CAPTURED 2026-08-31 against the live seat, binders v0.0.26)
+. content/modules/ROOT/assets/images/module-01-login-factory-sso.png - OpenShift "Log in with" provider page, factory-sso highlighted (self-service seats)
+. content/modules/ROOT/assets/images/module-01-login-workshop.png - OpenShift "Log in with" provider page, workshop highlighted (fixed seats)
+. content/modules/ROOT/assets/images/module-01-chat-signin.png - the workshop chat (Mattermost front) sign-in page
+. content/modules/ROOT/assets/images/module-01-gitea-keycloak.png - Gitea sign-in page, "Sign in with keycloak" highlighted (self-service seats)
+. content/modules/ROOT/assets/images/module-01-gitops-application.png - OpenShift GitOps Application view for the agent, resource tree Synced and Healthy
+. content/modules/ROOT/assets/images/module-01-first-contact.png - Agent chat channel showing the first reply
+////

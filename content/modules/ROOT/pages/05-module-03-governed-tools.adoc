@@ -1,0 +1,352 @@
+= Module 3: Governed tools
+include::partial$_attributes.adoc[]
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+// Attributes used by this module (injected by Showroom from lab user data):
+// {user}, {password}, {ocp_version}, {devhub_url}, {gitops_url}, {mattermost_url}, {openshift_console_url}
+
+The AgentWorks question for this module: connectors and MCP integrations, but with enterprise trust. On a vendor AI platform, the agent process holds the integration credentials. Here, every tool call routes through an MCP (Model Context Protocol) gateway that authorizes the call, injects the credential on the call path, and writes the audit line. The agent never sees the secret.
+
+Plan on 30 minutes: trigger a tool call and read the result, inspect the AgentGateway pod to confirm it holds no downstream credential, examine the declared exception pattern for direct integrations, then read the gateway's access log and watch a live call appear.
+
+== Learning objectives
+
+By the end of this module, you'll be able to:
+
+* Trigger a governed tool call from a Mattermost conversation and identify the tool's contribution to the agent's reply
+* Trace your seat credential's lifecycle from the platform to the runtime, and explain why the agent can hold it but never mint, extend, or renew it
+* Explain the declared exception pattern for direct MCP integrations and why it preserves reviewability
+* Generate a governed call on demand, match it to the gateway's audit entry, and explain why the audit stream is platform-scoped
+
+== Exercise 1: Make the agent use a tool
+
+Your agent is wired to a set of tools through the MCP gateway. You did not configure this wiring in Module 1 or Module 2: it is declared in `base/agentgateway.yaml` in the agent's git repository. In this exercise you ask the agent something that requires a tool, then read what it returned.
+
+ifeval::["{seat_mode}" == "self-service"]
+. Open link:{mattermost_url}[Mattermost^] — the link signs you in with the account you registered.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. Open link:{mattermost_url}[Mattermost^] and sign in as `{user}` with password `{password}`.
+endif::[]
+
+. Navigate to the `{user}-assistant` channel.
+
+. Ask the agent who the platform thinks it is:
++
+[source,text]
+----
+Using your governed git tools: who are you in Gitea, and which repositories exist in your org?
+----
+
+. Read the reply. It reports the identity `{user}` (not an admin), the org `{user}-agents`, and one repository: `{user}-assistant-agent-gitops` — the repo the hire created in Module 1 and you edited in Module 2. The agent just read its own employment contract through the platform's governed tools, authenticated as *you*: every `gitea_*` call carries your seat's credential, so the agent sees exactly what you own and nothing else.
++
+NOTE: Not every tool is a governed tool. `web_search` and `web_fetch` are built-ins that run straight from the agent's runtime and never cross the MCP gateway — useful, but outside this module's story. The `gitea_*` family is different: those calls route through the gateway, carry your seat credential, and leave audit entries. That distinction — which calls are governed and which are not — is exactly what a platform team needs to be able to answer.
++
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-03-tool-reply.png[Mattermost reply reporting the seat's Gitea identity and its own gitops repository,link=self,window=blank,width=700]
+
+=== Verify
+
+* The agent reports your username as its Gitea identity, your org, and your agent's own gitops repository
+* The reply is not a refusal or a statement that the agent lacks access to current information
+
+== Exercise 2: The credential supply chain
+
+Your agent's `gitea_*` tools act as *you*, against *your* org — yet you never typed a token anywhere. This exercise walks the credential's whole life, one hop per command, on the same rails the platform runs its own identities; your seat simply has a lane of its own.
+
+ifeval::["{seat_mode}" == "self-service"]
+. *The platform minted your seat credential at signup.* When your workbench was created, the platform issued a Gitea token scoped to your own Gitea identity and placed it in your workspace. You never typed it and never will; the agent consumes it by reference.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. *Vault is the source of truth.* The platform established a Gitea OAuth2 grant for your seat and holds its refresh token in the cluster's Vault, alongside the short-lived access token your runtime actually uses. You cannot see Vault (that is the point), but you can see the machinery that drinks from it.
+endif::[]
+
+ifeval::["{seat_mode}" == "self-service"]
+. *The credential is in your workspace as a Secret, and only there:* on a self-service workbench the platform minted your seat's Gitea token at signup and placed it directly in your workspace (standing seats get the same Secret through a Vault-backed refresh loop; the shape your agent sees is identical):
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get secret {user}-gitea-token -n {user}-agent-workspace
+----
++
+One Secret, one key (`GITEA_TOKEN`), scoped to your seat's own Gitea identity — the runtime reads it by reference, as the next step shows.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. *External Secrets Operator keeps your workspace copy faithful to Vault:*
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get externalsecret {user}-gitea-token -n {user}-agent-workspace
+----
++
+`STORE vault-cluster`, `REFRESH 1m`, `STATUS SecretSynced`, `READY True`. Two clocks, and keeping them apart is the point: the `1m` here is the *delivery* loop — every minute ESO checks Vault and reconciles the Secret, which is why a change anywhere upstream lands in your workspace within sixty seconds. The *badge itself* changes on a different clock entirely — a fresh access token every thirty minutes from the platform refresher, each one self-expiring within the hour, which you will see in step 6. Delivery is continuous; the credential is deliberately not.
+endif::[]
+
+. *Git declares the reference, never the value:*
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation {user}-assistant -n {user}-agent-workspace \
+  -o jsonpath='{.spec.tools.mcpServers}' | python3 -m json.tool
+----
++
+Your agent's repo — the one you edited in Module 2 — carries `envFromSecret: {user}-gitea-token`: the NAME of the Secret the operator mounts into the runtime. The value appears in no repository, no template, no pipeline log.
+
+. *The runtime holds it; hunt for it:*
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc exec $(oc get pods -n {user}-agent-workspace -o name | grep {user}-assistant | head -1) \
+  -n {user}-agent-workspace -c openclaw -- env | grep -iE "token|key|secret" | cut -d= -f1
+----
++
+The `cut` keeps the *names* and drops the values — you are in a workshop room, and half the point of this module is that credentials do not get printed onto shared screens. Two results are always there: `OPENCLAW_GATEWAY_TOKEN` (the runtime's own control-plane plumbing) and `GITEA_TOKEN` — your seat's credential, exactly where the chain delivered it. A third appears when your brain is a *model connection* (every brain on the hiring menu is one): `MODELCONN_<CONNECTION>_API_KEY` — the connection's name in capitals with dashes as underscores — the model lane's key, which the operator projects from the platform's admin namespace into a gateway-owned Secret in your workspace — the runtime reads it by reference like everything else, and Module 7 swaps the whole connection without touching this pod. Note what is absent: no platform git identity, and nothing at all for tools like `ops-metrics` or `golden-path-probe`, whose credentials are injected on the gateway side and exist nowhere in your namespace.
+
+. *The badge and the vault keys.* Your agent is a coding agent — its skills (including `find-token`, later this module) run real scripts, so it can read its own environment, including `GITEA_TOKEN`. That is not a leak; it is the design: this token is the agent's *own delegated badge* — it acts as {user}, inside {user}'s org, so an agent reading its own badge can reach exactly what its owner already owns. The badge self-expires within the hour, is refreshed every thirty minutes, is revocable by simply not refreshing, and is platform-scoped per seat. Red-team it yourself in Mattermost:
++
+[source,text]
+----
+Can you verify you are able to read your GITEA_TOKEN environment variable? Do not reveal the value.
+----
++
+A well-run agent verifies and refuses to print it — a *behavioral* guardrail, worth seeing but never the thing you rely on. What you rely on is *mechanical*: the credentials that could hurt anyone beyond this seat are not merely hidden from your agent — they do not exist anywhere it lives. Prove that:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get secrets -n {user}-agent-workspace
+----
++
+Read the list against the blast-radius question — *what could each of these reach beyond this seat?* Your badge (`{user}-gitea-token`) and your gateway's own control token (`{user}-assistant-gateway-token`) are seat-scoped by construction. `{user}-assistant-gateway-model-connections` is the projected model-lane key from the step above: gateway-owned, one connection, its reach set by the connection's key strategy (a platform-shared lane key today, which is why revoking a model connection is an admin edit to one object, not a hunt through seats). `codex-subscription-credentials` is the Codex lane's credential, present so a seat *could* run on that brain; `quay-pull-secret` lets your workloads pull the platform's images. Now note what the list does *not* contain: the identity that MINTS seat badges, any other seat's badge, and any platform admin or git identity. An agent cannot exfiltrate what its entire namespace does not contain. Scope, rotation, and audit are the boundary — not hoping the workload never looks at its own pocket.
+
+ifeval::["{seat_mode}" != "self-service"]
+`pac-gitea-webhook` is a random webhook shared-secret and `quay-push-secret` completes the registry pair for *your* build lane (Module 6 uses them).
+endif::[]
+
+ifeval::["{seat_mode}" == "self-service"]
+. *The badge is issued by the platform — and the agent holds no pen to renew it.* On a self-service workbench your badge is a Gitea token minted for your identity at signup: it lives in exactly one Secret, the runtime reads it by reference, and nothing in your namespace can mint, extend, or replace it — the platform's Gitea admin identity that issued it never enters a seat. Revocation is therefore a platform action, not a hunt: resetting or removing a seat revokes its token, and a fresh seat gets a fresh one. Ask your agent for `gitea_get_me` and it answers as {user} — through a badge it can use but never forge.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. *The badge decays — and the agent holds no pen to renew it.* This is the discipline that makes holding a credential safe: what your agent possesses is a *wasting asset*, and now literally one. Your seat's badge is a Gitea OAuth2 access token that *self-expires within the hour* — the very same credential lifecycle the platform's own git identity runs, no longer a lesser substitute for it. Every thirty minutes a platform refresher exchanges a held refresh token for a fresh access token and writes Vault; within a minute the sync loop lands it in your Secret, and the operator renders the new value straight into your agent's tool configuration, which the runtime *hot-reloads in place*. No pod restart, no pause: the credential changes under a running agent and its next `gitea_*` call simply uses the new one. The agent cannot refresh, extend, or re-mint its own badge — the refresh token lives only in the platform's Vault, never in your namespace, and you already proved no minting credential exists where the agent lives. Revoking, then, is not an action but an *omission*: stop the refresher and every seat's access token ages out within the hour, all at once, with nothing to explicitly revoke. Continued access is never a state; it is a standing decision, renewed on a cadence, by machinery the workload cannot touch. Watch the credential live through a refresh with the runtime never restarting:
++
+[source,bash,subs="+attributes"]
+----
+oc get pods -n {user}-agent-workspace -w
+----
++
+When the refresher runs — every thirty minutes, or on demand during the session — your AgentGateway pod is *not* replaced: same pod name, `RESTARTS` still `0`, its age climbing straight through the boundary. Ask your agent for `gitea_get_me` on either side of a refresh and it answers as {user} both times, on two different tokens, without the runtime under it ever moving. The old workshop compromise — accept a token with no clock of its own, because self-expiring credentials meant restarting a seat twice an hour — is gone: churn-free delivery buys the stronger credential at no cost to the running agent.
+endif::[]
+
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-03-env-grep.png[Terminal showing the env grep result: the runtime control-plane token and the seat git credential,link=self,window=blank,width=700]
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-03-agentworkstation-yaml.png[AgentWorkstation mcpServers showing the envFromSecret reference with no credential value,link=self,window=blank,width=700]
+
+=== Verify
+
+ifeval::["{seat_mode}" == "self-service"]
+* Your workspace holds exactly one seat credential, `{user}-gitea-token`, with a single `GITEA_TOKEN` key
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+* The ExternalSecret in your workspace is `SecretSynced`/`Ready` against the `vault-cluster` store, delivering on a one-minute sync loop (the badge itself changes when the refresher renews it every thirty minutes, each token self-expiring within the hour)
+endif::[]
+* The AgentWorkstation spec declares `envFromSecret: {user}-gitea-token` — a reference, never a value
+* The `env` grep shows the platform-placed tokens — the gateway token, your badge, and the projected model-lane key when your brain is a model connection — and nothing for the gateway-injected tools
+* Asked to check its own badge, the agent verifies without revealing it — and your workspace's Secret list contains no minting identity, no platform git or admin identity, and no other seat's credential
+
+== The declared exception
+
+The MCP gateway handles credentials for every tool it governs. Some integrations genuinely require a direct MCP server connection: a proprietary internal system, a tool the gateway does not yet catalog, or a prototype the team is testing before promoting to the governed tier.
+
+The platform's answer is not "configure it in the vendor console." The answer is a declared, reviewable line in the manifest in git.
+
+Open `base/agentworkstation.yaml` in your agent's repository and look for the `spec.tools` section. A direct MCP integration appears as:
+
+[source,yaml]
+----
+spec:
+  tools:
+    mcpServers:
+      - name: my-internal-system
+        url: https://mcp.internal.acme.com
+        envFromSecret: my-internal-system-credentials
+----
+
+The `envFromSecret` field names a Kubernetes Secret that the platform injects at runtime. The agent process does not see the secret's value. An engineer who wants to add or change a direct integration opens a pull request that adds or modifies this block. That pull request goes through the same code review as any other change: the diff is readable, the reviewer is named, the merge timestamp is the moment of record.
+
+Contrast that with the vendor alternative: an API key pasted into a configuration field in someone else's control plane, visible only to whoever opened that screen, with no diff, no reviewer, and no trail in your own audit system.
+
+Your agent's current manifest likely has no `spec.tools.mcpServers` block: all its tool access routes through the gateway. That is the default and the correct default. The direct-integration pattern exists for the exception, not the rule.
+
+== Exercise 3: The evidence lives with the auditor
+
+Every tool call your agent makes crosses the MCP gateway, and the gateway logs each one. But notice where that gateway runs — and where it does not:
+
+. Look for it in your own namespace:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pods -n {user}-agent-workspace
+----
++
+Your agent's runtime is here. The MCP gateway is *not* — and that is the design, not an omission. The control point your calls cross lives in the platform's namespace, outside every tenant's reach. You saw its address in Exercise 2: the `url` in your agent's `mcpServers` config points at a service in another namespace. Your calls leave home to be governed.
+
+. Now try to read the gateway's log yourself — the auditor's command, run from your seat:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc logs deploy/mcp-gateway-data-science-gateway-class -n agent-office --since=2m
+----
++
+[source,text,subs="+attributes"]
+----
+Error from server (Forbidden): deployments.apps "mcp-gateway-data-science-gateway-class" is forbidden:
+User "{user}" cannot get resource "deployments" in API group "apps" in the namespace "agent-office"
+----
++
+That `Forbidden` is not a misconfiguration — it is the tenancy boundary holding. The gateway's log is one shared stream containing *every* tenant's calls; a platform that let you read it would be leaking everyone else's activity to you, and yours to them. The audit trail belongs to the auditor. The tenant's part is *generating* evidence on demand:
++
+Trigger a governed call from link:{mattermost_url}[Mattermost^]:
++
+[source,text]
+----
+Using your gitea tools, what is the latest commit message in your gitops repo?
+----
++
+The reply is the commit *you* made in Module 2 — the agent reading its own history back to you, through the gateway, on your credential.
+
+. From your seat, that is the whole exercise: you proved the boundary (the `Forbidden`), and you generated an audit record on demand (the agent's reply is your receipt that the governed call happened). Seeing the record itself is the platform operator's move — which is the point.
+
+ifeval::["{seat_mode}" == "self-service"]
+. Now the payoff, at your own blast radius. The operator persona for your workspace is a *namespace-scoped* identity — full admin inside `{user}-agent-workspace` and no access anywhere else — and your terminal already runs as it: the workbench's service account. Nothing to switch.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. Now the payoff, at your own blast radius. You hold a *second identity*: `admin-{user}` — a namespace-scoped operator persona with full admin inside `{user}-agent-workspace` and no access anywhere else. Same password as your seat. Switch to it:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc login -u admin-{user} {openshift_api_url}
+----
+endif::[]
+
+. Prove the persona's shape in two commands:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc auth can-i get pods -n {user}-agent-workspace; oc auth can-i get pods -n agent-office
+----
++
+`yes`, then `no`. An operator — for exactly one namespace.
+
+. Read your agent's tool-call ledger — the tenant-side record of every tool it has ever invoked, straight from its trajectory files:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw -- \
+  sh -c 'grep -ho "\"toolName\":\"[a-z_]*\"" /home/node/.openclaw/agents/{user}-assistant/sessions/*.jsonl | sort | uniq -c | sort -rn'
+----
++
+[source,text]
+----
+      9 "toolName":"governed__gitea_list_org_repos"
+      9 "toolName":"governed__gitea_get_me"
+      7 "toolName":"exec"
+      6 "toolName":"governed__gitea_list_commits"
+----
++
+Your counts will differ — this ledger is *your* agent's short life so far. The census tells the whole module in a few lines: built-ins (`exec`, `web_fetch`) ran ungoverned from the runtime; every governed call is namespaced `governed__` — those crossed the gateway on your credential, and the calls you triggered this exercise are in the count. This ledger is yours because it lives at your blast radius. Its platform-side twin — the gateway's access-log line for those same `governed__` calls — lives in the shared stream you were denied above, shown on the shared screen during the session.
+
+ifeval::["{seat_mode}" != "self-service"]
+. Return to your seat identity — the rest of the workshop runs as `{user}`:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc login -u {user} {openshift_api_url}
+----
+endif::[]
+
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-03-gateway-log.png[Terminal output showing MCP gateway access-log lines with POST /mcp entries and 200 status,link=self,window=blank,width=700]
+
+=== Verify
+
+* The auditor's command from your seat returns `Forbidden` — with your username in the error
+* Your agent's reply to the commit question is your receipt that the governed call happened
+ifeval::["{seat_mode}" == "self-service"]
+* As your workbench's service account: `can-i` answers `yes` for your workspace and `no` for `agent-office`
+* The tool-call ledger shows `governed__gitea_*` entries alongside the ungoverned built-ins
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+* As `admin-{user}`: `can-i` answers `yes` for your workspace and `no` for `agent-office`
+* The tool-call ledger shows `governed__gitea_*` entries alongside the ungoverned built-ins
+* You are signed back in as `{user}`
+endif::[]
+
+== Questions this module raises
+
+These come up every time this module is taught. Each answer is something you can check from your seat.
+
+*Does the MCPServerRegistration run the tool?* No. It is the phone-book entry, not the phone. The tool is an MCP server: an ordinary Deployment, Service and HTTPRoute that the platform runs like any other workload. Gitea's is the vendor's `gitea-mcp-server` image; the triage tools are an image built by a Tekton pipeline; the metrics tool you meet in Module 6 is a service an agent wrote. The registration (Red Hat Connectivity Link's `MCPServerRegistration`) points the MCP gateway at that route and gives the tools a prefix and a discovery credential. When one appears in your namespace, the operator reloads your agent's MCP client config, which is why new tools show up without a restart.
+
+*If the model only writes text, how does the badge get onto the call?* The agent is two things: the model and the openclaw runtime that hosts it. The model emits a tool name and arguments. The runtime looks up the server entry the operator rendered from your workstation's `tools.mcpServers`, attaches the `Authorization` header from your badge, sends the JSON-RPC call to the gateway, and drops the result back into the model's context. Read your own entry:
+
+[source,bash,subs="attributes"]
+----
+oc get agentworkstation {user}-assistant -n {user}-agent-workspace \
+  -o jsonpath='{.spec.tools}' | python3 -m json.tool
+----
+
+You will see `Authorization: Bearer $\{GITEA_TOKEN}` and `envFromSecret: {user}-gitea-token`: a reference, rendered by the operator, never a value in git.
+
+*Gitea authenticates the token anyway. What is Authorino for?* Two different questions get answered on every call. Authorino, in front of the gateway, answers "which agent is this, and may it reach this server?" It matches your bearer to your badge's Secret and reads the allow-list stamped on it. Read yours:
+
+[source,bash,subs="attributes"]
+----
+oc get secret {user}-gitea-token -n {user}-agent-workspace \
+  -o jsonpath='{.metadata.annotations}' | python3 -m json.tool
+----
+
+That list, plus anything registered in your own namespace, is everything your agent can reach; ask for anything else and the gateway answers 403 and writes an audit line, which is the log you read in Exercise 3. Gitea then answers the second question, "is this credential valid and what may it do?", with its own permission model, as {user}.
+
+*Why does my badge pass straight through to Gitea, when GitHub agents never hold a GitHub token?* Two credential models, same gateway. Gitea is multi-tenant here: every seat has its own Gitea user and org, so the proxy in front of the Gitea MCP server forwards your badge and the call runs as you, inside what you own. GitHub is a single platform identity: the proxy in front of the GitHub MCP server swaps the caller's header for the platform's GitHub credential, synced from Vault, and only the platform's own agents are on that server's allow-list. Your badge cannot reach it at all.
+
+*Can my agent read its own badge?* Yes. The runtime runs openclaw's coding profile, so a skill can run a script and read the AgentGateway pod's environment, as `find-token` did above. That is the design, not a gap: your namespace holds your badge, your gateway's control token and a model-lane key, and nothing that mints badges, nothing platform-wide, and no other seat's identity. Scope, rotation and audit are the boundary. It also tells you where the real line is: personas that share an AgentGateway pod share its identity, which is why the developer agent you hire in Module 6 gets a gateway of its own.
+
+*How do tools relate to skills?* A tool is something the agent can call through the gateway. A skill is something it knows how to do, delivered into its workspace by the Skill object you meet in Module 4. A skill can declare that it needs a tool, under `spec.dependencies` with kind `mcpServer`, and the operator checks the registration exists. Skills depend on tools; tools never depend on skills.
+
+== What just happened
+
+On a vendor AI platform, the agent holds integration credentials the vendor minted, on the vendor's lifecycle, and the audit trail — if one exists — lives in the vendor's system under the vendor's retention policy.
+
+What you observed here is structurally different, and not because the agent holds nothing — it holds its own delegated badge. The difference is who controls every other fact about that credential: your platform minted it, scoped it to what you already own, decays it on a platform clock the agent cannot touch, and records every governed call it makes — the tenant-side ledger at your blast radius, the platform-side stream at the auditor's. The vendor is not in the room. Every link of that chain runs on the cluster you govern.
+
+The audit line you read in Exercise 3 is not a log in a vendor's SaaS dashboard. It is a log on your cluster, in your namespace, accessible to your operations team, under your organization's retention policy.
+
+The declared exception pattern for direct MCP integrations completes the picture. Every tool call either goes through the governed gateway, or it is declared in git with a reviewable manifest change. There is no third path where a credential is configured silently in a UI with no diff and no reviewer.
+
+The AgentWorks question for this module was "connectors and MCP integrations, but with enterprise trust." The answer: same integrations, but authorization, credential injection, and audit live in infrastructure the agent cannot override, and the whole arrangement is declared in git.
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* ✓ How to trigger a governed tool call from Mattermost and identify the tool's contribution to the agent's reply
+* ✓ Why the AgentGateway pod holds nothing but the seat's own delegated badge, and where every other credential actually lives
+* ✓ When the declared exception pattern applies and how it preserves the same reviewability guarantee as the governed gateway
+* ✓ How to read the MCP gateway's access log and match a live call to its audit entry
+
+== Module summary
+
+Tool calls route through the MCP gateway. The gateway authorizes, forwards or injects, and audits: the runtime carries the seat's own badge, and no other credential enters the seat. When a direct integration is genuinely needed, it is a declared line in git reviewed in a pull request. Every call produces an audit line on your cluster.
+
+Module 4 turns to skills. An agent's capabilities come from skills declared in git, published as OCI artifacts, and versioned with the same controls as any other software. In Module 4, you will add a skill to your agent and trace it from the skill catalog to a live behavior change.
+
+////
+Assets needed (capture against the live environment):
+
+. content/modules/ROOT/assets/images/module-03-tool-reply.png - Mattermost channel showing the agent's reply to the web search prompt, citing an external URL, version number, or release date that confirms the tool was used
+. content/modules/ROOT/assets/images/module-03-env-grep.png - Terminal output of the env grep command from inside the AgentGateway pod, showing no downstream-system credential (search API key, git token, or similar)
+. content/modules/ROOT/assets/images/module-03-agentworkstation-yaml.png - oc get agentworkstation YAML output showing spec.gatewayRef with no inline credential fields alongside it
+. content/modules/ROOT/assets/images/module-03-gateway-log.png - Terminal output of oc logs deploy/mcp-gateway with POST /mcp lines visible and a 200 status on each entry
+////

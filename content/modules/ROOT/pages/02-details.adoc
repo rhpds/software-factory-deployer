@@ -1,0 +1,237 @@
+= Prerequisites and environment
+
+include::partial$_attributes.adoc[]
+
+Everything in this workshop runs in your browser and on the lab cluster. Nothing installs on your laptop. This page covers what you need to know coming in, what is already running, how to sign in to each console, and what is yours alone.
+
+== What you need to know
+
+This is an intermediate lab for platform engineers, architects, and technical sellers. You should be comfortable with:
+
+* OpenShift or Kubernetes basics: projects, pods, operators, and custom resources
+* Git workflow: branch, commit, and merge a pull request
+* Terminal work: every command is provided and explained, but you run it yourself
+
+You do not need an AI or machine learning background. That is the point of the lab: agents here are ordinary workloads, so if you can operate OpenShift, you can operate agents.
+
+== Your environment
+
+You work on a shared, multinode OpenShift {ocp_version} cluster with per-attendee identity and isolation. Attendee-specific things (your login, your projects, your agents) are yours alone. Platform services are shared and multi-tenant, the way a production agent platform would run.
+
+[cols="1,2",options="header"]
+|===
+|Component |Role in this lab
+
+|OpenShift {ocp_version} (multinode)
+|The factory floor. Every agent, pipeline, and model endpoint in this lab runs as a workload on this cluster.
+
+|Red Hat Developer Hub
+|The front door. Hosts the agent catalog and the golden-path templates, including the "hire an agent" template you use in module 1.
+
+|OpenShift GitOps
+|Reconciles every agent and application to what git declares. In module 2 you change an agent by pull request and watch it converge.
+
+|OpenShift Pipelines and supply-chain tooling
+|Builds, signs, and scans everything that ships, including code an agent wrote. Module 5 runs a headless agent inside a PipelineRun.
+
+|agent-office operator
+|Turns AgentWorkstation, AgentGateway, and Skill custom resources into running agents. An agent is a declared object, not a pet process.
+
+|MCP gateway
+|Governed tool access, built on Red Hat Connectivity Link. Every governed tool call crosses it for per-call authorization and an audit line. Credentials are platform-managed on both patterns it governs: injected gateway-side for platform tools, or carried by the agent as its own platform-minted, self-expiring seat badge. Module 3 walks both.
+
+|Red Hat build of Keycloak
+|Per-attendee identity. Your login is a Keycloak identity, and the same sign-on works across every console in this environment.
+
+|Model serving
+|An in-cluster vLLM endpoint (the sovereign brain) and a frontier model endpoint, side by side. Module 7 swaps an agent between them.
+|===
+
+== How you access everything
+
+Your Showroom lab guide has tabs across the top. Each tab is a console already pointed at this environment.
+
+[cols="1,2",options="header"]
+|===
+|Tab |What it is
+
+|*Terminal*
+|A shell with the `oc` CLI, running in the cluster. Command blocks in this guide include a button that runs them here.
+
+|*OpenShift Console*
+|The OpenShift web console at link:{openshift_console_url}[{openshift_console_url}^]. Use it to watch pods, PipelineRuns, and routes appear as agents work.
+
+|*Developer Hub*
+|Red Hat Developer Hub at link:{devhub_url}[{devhub_url}^]. The agent catalog, the golden-path templates, and the component pages for everything you create.
+|===
+
+OpenShift GitOps has no tab of its own. When module 2 calls for it, open the link:{gitops_url}[OpenShift GitOps console^] in a new browser tab and sign in with the same credentials.
+
+=== Your credentials
+
+Provisioning stamps a personal set of values into this guide. Wherever these appear, they are yours, not shared:
+
+[cols="1,1",options="header"]
+|===
+|Item |Value
+
+|Username
+|{user}
+
+|Password
+|{password}
+|===
+
+One identity everywhere: the OpenShift console, Developer Hub, and OpenShift GitOps all authenticate against the same Keycloak, so this username and password works in each of them.
+
+ifeval::["{seat_mode}" == "self-service"]
+You also hold a second, narrower identity — an operator persona with full admin inside your own `{user}-agent-workspace` namespace and no access anywhere else: your terminal's service account, already signed in. Module 3 puts it to work.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+You also hold a second, narrower identity: `admin-{user}` — an operator persona with full admin inside your own `{user}-agent-workspace` namespace and no access anywhere else, using the same password. Module 3 puts it to work.
+endif::[]
+
+=== Verify your access
+
+Do this before module 1. It takes about 2 minutes.
+
+ifeval::["{seat_mode}" == "self-service"]
+. In the *Terminal* tab, check who `oc` is working as:
++
+[source,bash,role="execute"]
+----
+oc whoami
+----
++
+Expected output:
++
+[subs="+attributes"]
+----
+system:serviceaccount:showroom-{user}:showroom-{user}
+----
++
+Your terminal is already signed in as your workbench's service account: an administrator of your project and nothing else, with a session that never expires. There is nothing to log in to. (`oc login -u {user}` will not work — the account you registered is a browser sign-on; if you ever want `oc` on your own laptop, use *Copy login command* from the OpenShift console's user menu.)
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. In the *Terminal* tab, sign in as yourself. The terminal starts out
+authenticated as the lab environment's service account — the first command
+you run makes it yours. Enter the password from *Your credentials* above
+when prompted:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc login -u {user} {openshift_api_url}
+----
+
+. Verify who you are now:
++
+[source,bash,role="execute"]
+----
+oc whoami
+----
++
+Expected output:
++
+[subs="+attributes"]
+----
+{user}
+----
+endif::[]
+
+. List your projects:
++
+[source,bash,role="execute"]
+----
+oc get projects
+----
++
+You see only the projects you are entitled to. Other attendees' projects do not appear. That is the isolation model working, not a permissions problem.
+
+. Click the *OpenShift Console* tab — it opens in its own browser tab (the console does not allow embedding). When it offers a choice of identity providers, pick
+ifeval::["{seat_mode}" == "self-service"]
+*factory-sso* and sign in with the account you registered.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+*workshop* and sign in as {user} — or *factory-sso* to use the same single sign-on the other surfaces use.
+endif::[]
+
+. Click the *Developer Hub* tab — also its own browser tab — and sign in with the same credentials.
+
+Success looks like:
+
+* `oc whoami` returns `{user}` in the terminal
+* The OpenShift console shows your projects and nothing else
+* Developer Hub loads the software catalog
+
+== Pre-installed versus what you create
+
+Everything in the component table is running before you arrive. You never install platform pieces:
+
+* OpenShift, Red Hat Developer Hub with its golden-path templates, OpenShift GitOps, OpenShift Pipelines with the supply-chain tooling, the agent-office operator, the MCP gateway, Keycloak with your user already in it, and both model endpoints
+
+Everything you create during the lab belongs to you and runs under your identity:
+
+* *Module 1:* an agent hired from the Developer Hub template, with its git repo, GitOps application, catalog entry, and running AgentGateway pod
+* *Module 2:* pull requests against your agent's repo, and a rollback
+* *Module 3:* governed tool calls, and the audit lines they leave behind
+* *Module 4:* a versioned skill pack installed on your agent
+* *Module 5:* PipelineRuns carrying a headless agent task
+* *Module 6:* a production microservice — scaffolded by your dev agent, built and signed by the pipeline, promoted by OpenShift GitOps — then registered behind the MCP gateway, where the agent that requested it calls it as a governed tool to finish the original job
+* *Module 7:* a model swap on your own agent, frontier to sovereign and back
+* *Module 8:* sandbox the agent — the egress cage every seat runs inside, tested with a prompt-injection exfiltration, then one line of git that moves your agent's gateway into a lightweight VM (OpenShift sandboxed containers); closes with the honest gap list against the commercial agent-platform stack
+
+== Per-attendee isolation
+
+* You sign in as {user}, a personal Keycloak identity honored by every console in the environment.
+* Your work lands in your own projects. RBAC keeps other attendees' projects out of your view, and yours out of theirs.
+* The agents you hire are yours: their repos, namespaces, AgentGateway pods, and chat channels exist per attendee. Nobody else's prompts reach your agent.
+* Shared services stay accountable. The MCP gateway records every tool call with the calling agent's identity, so shared never means anonymous.
+
+== Timing and schedule
+
+Plan for a half day: about 3.5 hours of focused hands-on work. Treat the module estimates as upper bounds and take breaks at the facilitator's cue.
+
+[cols="4,1",options="header"]
+|===
+|Module |Time
+
+|1. Hire an agent |~30 min
+|2. The agent is in git |~25 min
+|3. Governed tools |~30 min
+|4. Teach with a skill artifact |~30 min
+|5. Headless agent in the pipeline |~30 min
+|6. Ship to production (capstone) |~60 min
+|7. Swap the brain |~20 min
+|8. Sandbox the agent |~25 min
+|===
+
+Short on time? Modules 1, 3, 4, and 6 carry the core arc: hire, govern, teach, ship.
+
+== If something does not work
+
+* The *Terminal* tab is blank or stops responding: reload the browser tab. The terminal reconnects to your session.
+ifeval::["{seat_mode}" == "self-service"]
+* `oc whoami` reports an error or the wrong user: reload the *Terminal* tab — it comes back signed in as your workbench's service account.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+* `oc whoami` reports an error or the wrong user: re-run the `oc login` command from the verification steps.
+endif::[]
+* Keycloak rejects your password: confirm you are using the exact values from this page, because each attendee's credentials differ. If it still fails, tell your facilitator.
+
+////
+AUTHOR REFERENCE (not rendered): attributes this page consumes.
+Provisioning injects a per-attendee value for each.
+
+This page renders the following Showroom attributes. Provisioning injects a per-attendee value for each:
+
+* `+{user}+`: your workbench username. On a self-service workbench every sign-in — Developer Hub, OpenShift GitOps, the console, Gitea, Mattermost — is the account you registered with, and `+{password}+` simply reminds you of that; on an instructor-provisioned seat it is the seat's real password
+* `+{openshift_console_url}+`: OpenShift web console URL
+* `+{openshift_api_url}+`: cluster API endpoint used by `oc login`
+* `+{devhub_url}+`: Red Hat Developer Hub URL
+* `+{gitops_url}+`: OpenShift GitOps console URL
+* `+{ocp_version}+`: OpenShift version string
+
+AUTHOR NOTE: {openshift_api_url} is used by the oc login step but is not yet
+declared in .lab-spec.yaml env.attributes. Add it to the provisioning spec
+(it is a standard Showroom attribute per SKILL-COMMON-RULES).
+////

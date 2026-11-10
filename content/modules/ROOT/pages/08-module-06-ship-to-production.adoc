@@ -1,0 +1,539 @@
+= Module 6: Ship to production
+include::partial$_attributes.adoc[]
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+// Attributes used by this module (injected by Showroom from lab user data):
+// {user}, {password}, {ocp_version}, {devhub_url}, {gitops_url}, {mattermost_url}, {openshift_console_url}, {openshift_api_url}
+
+The factory has been running since Module 1. You governed its tool calls in Module 3, taught it in Module 4, and ran it headless in a pipeline in Module 5. This module turns all of that into output: a shipped microservice, promoted to production, consumed as a new governed tool by the agent that originally asked for it.
+
+The request comes from Morgan, ACME Financial's ops manager — and it is the most universal request in the enterprise. Every Monday, Morgan runs the week out of a spreadsheet: export order data from `orders-api` (a system IT exposed years ago), stitch the exports together with VLOOKUPs, eyeball which orders are stuck, hand-build a weekly summary, paste it into chat. The data exists behind endpoints; the *answers* don't. The old fix — "just give me a summary endpoint" — sits in IT's backlog measured in quarters.
+
+Today's process: file the intent in Mattermost to a dev agent, watch its governed tool calls scaffold the service and open a pull request, merge it, and let the supply chain build, sign, scan, and promote. Then the move that makes it Morgan's Monday: register the shipped service behind the MCP gateway, and the assistant Morgan already talks to answers the Monday question with a governed tool call — numbers, not VLOOKUPs, with an audit entry for every step.
+
+One more thing, and it is the point of the whole lab: you have already *used* this capability. The `metrics_stuck_orders` tool your skill declared in Module 4 and your pipeline called in Module 5 is the platform's own copy of exactly this service, built exactly this way. In this module you build yours — and watch the factory pave the road it runs on.
+
+5 exercises, about 60 minutes total. Each has a clean stopping point.
+
+== Learning objectives
+
+By the end of this module, you'll be able to:
+
+* Hire a second agent from the same Developer Hub template and explain how a different brief composes a materially different capability set
+* Commission a microservice through a Mattermost intent and trace the dev agent's governed Gitea tool calls to your org
+* Read a supply-chain PipelineRun and confirm the build, sign, and scan stages completed before GitOps promoted the service
+* Register a newly shipped service behind the MCP gateway using an MCPServerRegistration resource
+* Trace the complete loop — a governed tool call from the requesting agent, through the gateway, to the service the factory just built — and read the audit entry that proves it happened
+
+== Exercise 1: Hire the dev agent
+
+In Module 1 you hired `{user}-assistant` with one sentence about investigating and documenting the cluster. That sentence drove the platform to the skill catalog, and the platform composed an investigation kit. A different sentence composes a different kit.
+
+This exercise uses the same Developer Hub template. The only thing that changes is the brief.
+
+ifeval::["{seat_mode}" == "self-service"]
+. Open link:{devhub_url}[Red Hat Developer Hub^] and sign in with the account you registered.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. Open link:{devhub_url}[Red Hat Developer Hub^] and sign in as `{user}` with password `{password}`.
+endif::[]
+
+. In the left navigation, click *Catalog*, then click the *Self-service* button at the top right of the catalog page.
+
+. Find the *OpenClaw Agent* template and click *Choose*.
++
+// VERIFIED LIVE 2026-10-13 (RHDP order, seat user1): the template is "OpenClaw Agent" (id openclaw-agent-genesis).
+
+. For *What will your agent be doing?*, write:
++
+[source,text,subs="+attributes"]
+----
+You are {user}-dev, a software engineer on the ACME Financial platform team: take assigned intents from Mattermost, scaffold new services from the golden-path template into your Gitea org using your governed git tools, open pull requests for review, and see builds through the pipeline.
+----
++
+The sentence is doing real work: "governed git tools" signals Gitea MCP integration, "golden-path template" signals the scaffold skill, and "open pull requests" signals the PR workflow. The platform reads the brief and composes from the catalog accordingly.
+
+. Click *Suggest*. Read the composed plan. Compare it with what the platform composed for `{user}-assistant` in Module 1.
++
+The assistant received an investigation and documentation kit. The dev agent receives a development and scaffolding kit — the governed Gitea tools, the `golden-path-service` skill, the golden-path probe — a different set pulled from the same catalog, driven by the same single-sentence input. Same form, same template, different brief, different employee.
++
+The composed plan is a *draft, not a verdict* — that is why the review step exists. Each pick shows the words it matched on and a *remove* link. Keyword matching over-reaches sometimes: if a pack in the list has nothing to do with development work, remove it before you continue. Then give the drafted *System prompt* a final read — it names the selected skills, so if you removed one, delete its name from the directive text too (the draft does not re-write itself yet).
+// Live walk 2026-08-27 (user3): Suggest pulled the parkforge-brain meta-pack (5 packs,
+// 6 skills of Unreal scripting) into a dev hire on generic word matches; one-click remove +
+// a prompt edit fixed it. Root fix filed against the composer's /catalog/recommend scoring.
+
+. Click *Review*, check the composed summary, then click *Create*. Watch the scaffolding steps complete.
++
+The run creates a git repository for the dev agent, registers it in the catalog, and hands the rollout to OpenShift GitOps.
++
+// VERIFIED LIVE 2026-10-13: the hire publishes `{user}-agents/{user}-dev-agent-gitops` and the Application is `{user}-agents-{user}-dev-agent`.
+
+ifeval::["{seat_mode}" == "self-service"]
+. Open link:{gitops_url}[OpenShift GitOps^] and sign in with the account you registered.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. Open link:{gitops_url}[OpenShift GitOps^] and sign in as `{user}` / `{password}`.
+endif::[]
+Find the Application for `{user}-dev` and watch it reach *Synced* and *Healthy*.
+
+. In the terminal, confirm the dev agent's AgentGateway pod is running:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pods -n {user}-agent-workspace
+----
++
+// VERIFIED LIVE 2026-10-13: both agents run in {user}-agent-workspace (pods {user}-assistant-gateway-… and {user}-dev-gateway-…); the dev gateway was Running about a minute after Create.
++
+Expected: both `{user}-assistant` and `{user}-dev` pods appear with `Running` status. Allow up to 2 minutes for the first image pull — and then give the *chat side* another two to three minutes before messaging the new agent: the channel bridge adopts a fresh hire on its next roster scan, and the gateway performs one configuration restart on first boot. A message sent during that settle window sits until adoption; the typing indicator appears once the agent's first turn actually starts.
+
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-06-dev-agent-compose.png[Developer Hub Suggest output for the dev brief: a scaffold skill and Gitea integration, distinct from the assistant's investigation kit,link=self,window=blank,width=700]
+
+=== Verify
+
+* The Developer Hub scaffolding run completes with no errors
+* The run page links to the dev agent's new git repository and catalog entry
+* The OpenShift GitOps Application for `{user}-dev` reports *Synced* and *Healthy*
+* `oc get pods -n {user}-agent-workspace` shows `{user}-dev` at `Running` status alongside `{user}-assistant`
+
+== Exercise 2: Commission the microservice
+
+The dev agent is live. Before you give it the job, look at the job as Morgan lives it today.
+
+. Morgan's Monday, unautomated — pull the raw exports the spreadsheet is built from:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw -- \
+  curl -s http://orders-api.agent-office.svc.cluster.local:8080/meta
+oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw -- \
+  curl -s "http://orders-api.agent-office.svc.cluster.local:8080/orders?status=processing" | head -c 400; echo
+----
++
+Two thousand orders, five statuses, five regions — and a raw list of everything sitting in `processing`. This is what Morgan exports every Monday, three filters at a time, into a spreadsheet where VLOOKUPs decide which orders count as stuck and a summary gets typed by hand. The endpoints exist; the answers don't. That gap is the intent.
++
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-06-morgans-spreadsheet.png[Morgan's Monday spreadsheet: exported order rows, a VLOOKUP column marking stuck orders, and a hand-typed weekly summary block,link=self,window=blank,width=700]
+
+Now commission the fix. You will open the dev agent's Mattermost channel and describe the service you want built. The agent will use its governed Gitea tools to scaffold the service, commit the files to your org, and open a pull request.
+
+. Wire the supply chain *before* you commission the service, so a listener exists before anything can be merged. The `Repository` below names a repository that does not exist yet -- that is fine, Pipelines-as-Code simply waits for events on it. The platform side is already standing — an org-level webhook on your Gitea org feeds the cluster's Pipelines-as-Code controller — so your half is one resource: a `Repository` that tells Pipelines-as-Code this repo's runs belong in your namespace, authenticated by your own seat credentials:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+cat <<EOF | oc apply -n {user}-agent-workspace -f -
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata:
+  name: order-metrics
+spec:
+  url: {gitea_url}/{user}-agents/order-metrics
+  git_provider:
+    type: gitea
+    url: {gitea_url}
+    secret:
+      name: {user}-gitea-token
+      key: GITEA_TOKEN
+    webhook_secret:
+      name: pac-gitea-webhook
+      key: secret
+EOF
+----
+
+ifeval::["{seat_mode}" == "self-service"]
+. Open link:{mattermost_url}[Mattermost^] — the link signs you in with the account you registered.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+. Open link:{mattermost_url}[Mattermost^] and sign in as `{user}` with password `{password}`.
+endif::[]
+
+. Find the channel for `{user}-dev`. The hire template created it at the same time it created the channel for `{user}-assistant` in Module 1.
++
+// VERIFIED LIVE 2026-10-13: the channel is `{user}-dev` (display name "User 1 Dev"), created with the hire and adopted by the bridge within a minute.
+
+. Send the intent:
++
+[source,text,subs="+attributes"]
+----
+Please build a service called order-metrics. It reads the existing orders API at http://orders-api.agent-office.svc.cluster.local:8080 (GET /orders with status/region/date filters, GET /meta) and turns Morgan's weekly ops questions into MCP tools served on an HTTP /mcp endpoint: metrics_stuck_orders(threshold_days=7) returns the count and list of orders in processing longer than the threshold, and metrics_weekly_summary() returns order counts by status for the last 7 days. "Stuck" means more than 7 days in processing. Also expose GET /healthz returning {"ok": true}. Listen on port 8080, and put the Dockerfile at the repository root. The platform will publish your container image at {artifact_registry}/{registry_org}/{user}-order-metrics:main — reference exactly that image in deploy/deployment.yaml, with imagePullSecrets naming quay-pull-secret. Use the golden-path template and open a pull request to my Gitea org for review.
+----
++
+// VERIFIED LIVE 2026-10-13: this intent was sufficient; the agent asked nothing, probed the orders API, ran the service and ten unit tests in its workspace, and opened the pull request seven minutes after the message (Claude Opus 5 via the model-desk connection).
+
+. Watch the agent's reply. It should describe the steps it is taking: calling the scaffold skill, creating the repository, writing the files, and opening the pull request. Each `gitea_*` call carries your seat credential and leaves an audit entry — the same credential lifecycle you traced in Module 3.
++
+// VERIFIED LIVE 2026-10-13: ledger shows governed__gitea_get_me, gitea_get_user_orgs, gitea_create_repo, gitea_create_branch, gitea_create_or_update_file (24 calls) and gitea_pull_request_write; the reply names the PR URL rather than the tool names.
+
+. Open your Gitea org at the URL the agent posts in its reply. Find the new `order-metrics` repository in the `{user}-agents` org.
++
+// VERIFIED LIVE 2026-10-13: the repository appears under `{user}-agents/order-metrics` (default branch main, feature branch feat/order-metrics-mcp).
+
+. Open the pull request the agent created. Read the diff: the golden-path template files are there — a service skeleton with the build configuration the supply-chain pipeline expects.
++
+// VERIFIED LIVE 2026-10-13: 12 files — .gitignore, .tekton/on-push.yaml, Dockerfile, README.md, app/__init__.py, app/metrics.py, app/orders_client.py, app/server.py, deploy/deployment.yaml, requirements.txt, tests/test_metrics.py, tests/test_server.py.
+
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-06-dev-agent-reply.png[Mattermost reply from {user}-dev describing the Gitea tool calls it made and linking to the pull request it opened,link=self,window=blank,width=700]
+
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-06-gitea-pr-diff.png[Gitea pull request showing the golden-path template files committed by the dev agent,link=self,window=blank,width=700]
+
+=== Verify
+
+* The dev agent replied in its Mattermost channel and described the steps it took
+* A `order-metrics` repository exists in your `{user}-agents` Gitea org
+* An open pull request in that repository contains the scaffolded service files
+
+== Exercise 3: Merge and ship through the supply chain
+
+The dev agent opened the pull request. You own the merge decision — the same pattern you practiced in Module 2: the diff is readable, the source is the agent's tool calls, and the merge is the moment of record. The scaffold conforms to the platform's *golden-path service contract* — a versioned skill every agent on your seat carries (Module 4's delivery mechanism, working for Module 6): Dockerfile at the root, port 8080, the deployment manifest shape, and the supply-chain pipeline definition already included under `.tekton/`.
+
+. Confirm the listener is in place -- the `Repository` you applied in Exercise 2:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get repository order-metrics -n {user}-agent-workspace
+----
++
+NOTE: Merged before the `Repository` existed? Then the merge event was dropped: the controller logged `cannot find a repository match`, and Pipelines-as-Code never replays on its own. Redeliver it -- in Gitea open your `{user}-agents` organization, *Settings* → *Webhooks* → the pipelines-as-code hook → *Recent Deliveries* → *Redeliver* on the latest `push`. Any new commit to `main` works too.
+
+. Open the pull request in Gitea and review the diff. The service skeleton is real engineering: source, tests, a root `Dockerfile`, a deployment manifest with probes, limits, and a hardened security context, and `.tekton/on-push.yaml` — the pipeline, reviewed and versioned like any other code. If anything strays from the golden-path contract, say so in the agent's channel and it will push the fix; when you are satisfied, **merge** — the merge is the push event that fires the build.
+
+. Watch the build arrive in *your* namespace:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pipelinerun -n {user}-agent-workspace -w
+----
++
+Press `Ctrl+C` at `Succeeded` (about 3 minutes).
+
+. Watch the same run as a picture. Open the link:{openshift_console_url}[OpenShift Console^] in the *Core platform* perspective (Module 5 showed the switcher if you land in *Fleet Management*), switch to your `{user}-agent-workspace` project, and go to *Pipelines* → *Pipelines* → the *PipelineRuns* tab. Open the active `order-metrics-on-push-` run and watch the task graph light up left to right: `init`, `clone-repository`, `prefetch-dependencies`, `build-container`, `build-image-index`, `apply-tags`, `push-dockerfile` — the same in-cluster Konflux `docker-build` pipeline the platform builds its own components with. The *Logs* tab follows any task live.
++
+image::module-06-pipeline-graph.png[The PipelineRun task graph: init, clone-repository, prefetch-dependencies and build-container in sequence, then build-image-index fanning out into the scan and check tasks,link=self,window=blank,width=700]
++
+That is the shape to expect: four tasks in sequence, then `build-image-index` fanning out into a dozen scans and checks. In this capture `build-container` had failed -- the red node; a healthy run shows it green and the fan-out lights up after it.
++
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-06-pipeline-taskgraph.png[OpenShift Console PipelineRun detail showing the seven-task docker-build graph with all tasks Succeeded,link=self,window=blank,width=700]
+
+. Look at everything the build pushed — not just an image:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+QUAY={artifact_registry}
+oc extract secret/quay-pull-secret -n {user}-agent-workspace --keys=.dockerconfigjson --to=- > /tmp/quay.json 2>/dev/null
+AUTH=$(python3 -c "import json;a=json.load(open('/tmp/quay.json'))['auths'];print(next(iter(a.values()))['auth'])")
+T=$(curl -sk "https://$QUAY/v2/auth?service=$QUAY&scope=repository:{registry_org}/{user}-order-metrics:pull" -H "Authorization: Basic $AUTH" | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+curl -sk "https://$QUAY/v2/{registry_org}/{user}-order-metrics/tags/list" -H "Authorization: Bearer $T" | python3 -m json.tool
+----
++
+Beside `main` sit the supply-chain artifacts, each pinned to the image digest: an SBOM (`.sbom`), the exact Dockerfile that built it (`.dockerfile`), a cryptographic signature (`.sig`), and an in-toto provenance attestation (`.att`) — the signature and attestation written by Tekton Chains the moment the run finished, keyed by the platform. Exercise 5 verifies them. One honest parameter while you are here: your pipeline file sets `skip-checks: "true"`, which skips the deep vulnerability-scan tasks the bundle also carries — flip it to `"false"` and the same pipeline gates on scan results, at the cost of several extra minutes per build. The gate is a parameter in a file you own, not a vendor tier.
+
+. Promotion is already happening. A platform ApplicationSet adopts any repository in your org that carries `deploy/deployment.yaml` and syncs it into your workspace — merge, build, promote, with no imperative step anywhere:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pods -n {user}-agent-workspace -l app.kubernetes.io/name=order-metrics
+----
++
+The pods report `Running` (the link:{gitops_url}[OpenShift GitOps console^] shows the `{user}-agents-order-metrics` Application Synced and Healthy; the replica count is the agent's implementation choice).
++
+[NOTE]
+====
+*If the pods are crash-looping instead:* that is a bug in the service — and fixing it is the contractor's job, not yours. Pull the error and hand it back:
+
+[source,bash,role="execute",subs="+attributes"]
+----
+oc logs deploy/order-metrics -n {user}-agent-workspace --previous 2>/dev/null | tail -15
+----
+
+Then send this to the `{user}-dev` channel, pasting the error output where indicated:
+
+[source,text]
+----
+Your order-metrics service is crash-looping in production. Here is the startup error:
+
+<paste the log lines here>
+
+Diagnose and fix it per your golden-path-service skill, push the fix directly to main, and summarize what was wrong.
+----
+
+The push rebuilds and redeploys automatically. This loop — production signal, error handed to the agent, fix on the record — is the same one a human contractor gets, minus the standup meeting.
+
+One mechanical detail: crash-looping pods pick the fixed image up on their next restart by themselves. If the pods are *Running* but misbehaving (a bad response rather than a crash), they have no reason to restart — after the fix's build completes, roll them once so they pull the new image:
+
+[source,bash,role="execute",subs="+attributes"]
+----
+oc rollout restart deployment/order-metrics -n {user}-agent-workspace
+----
+====
+
+. Confirm the service answers — first its health, then its *real* interface, the MCP handshake:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw -- \
+  curl -s http://order-metrics.{user}-agent-workspace.svc.cluster.local:8080/healthz; echo
+oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw -- \
+  curl -s -X POST http://order-metrics.{user}-agent-workspace.svc.cluster.local:8080/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' | head -c 300; echo
+----
++
+`{"ok":true}`, then `serverInfo: order-metrics` — the service Morgan asked for, built by an agent, shipped by the supply chain, running in your namespace.
+
+// VERIFIED LIVE 2026-10-13 (RHDP order 9cwxl, OpenShift 4.22, seat user1, cluster registry
+// quay-quay-registry.<domain>/workshop): merge 00:18:46Z -> PipelineRun created in 10 s -> Completed
+// 00:24:25Z (5m36s; the pipeline's taskRunSpecs sizing block made build-container schedulable on a
+// 7.5-CPU worker) -> main + .sig/.att/.sbom/.dockerfile -> seat-services Application Healthy 78 s
+// later -> /healthz and the MCP initialize answered. cosign verify and verify-attestation against
+// the seat's chains-public-key both passed (cosign 3 needs --insecure-ignore-tlog=true: no Rekor).
+// VERIFIED LIVE 2026-08-27 (first walk, seat user1): webhook->PaC gitea provider->PipelineRun
+// in-namespace in ~20s; build Succeeded in 160s (task names above are the live set); SBOM +
+// dockerfile artifacts pushed; after Chains was keyed, .sig/.att appeared and cosign verify +
+// verify-attestation (slsaprovenance v0.2) both passed against the cluster key. seat-services
+// ApplicationSet adopted the repo in <60s; AppProject sourceRepos needed the org-wide gitea
+// pattern (fixed declaratively, agent-office cluster/agent-office-appproject.yaml). Pods
+// Running 21s after sync; /healthz and /mcp initialize both answered.
+
+=== Verify
+
+* The `Repository` resource exists in your namespace, and the pull request merged
+* The merge triggered a PipelineRun in `{user}-agent-workspace` that reached `Succeeded`
+* The Quay tag list shows `main` plus `.sbom`, `.dockerfile`, `.sig`, and `.att` artifacts
+* `order-metrics` pods are `Running`, `/healthz` returns `{"ok": true}`, and `/mcp` answers the initialize handshake
+
+== Exercise 4: Register the service behind the gateway
+
+The service is live. At this point, no agent knows it exists. Making it callable as a governed tool takes two declared resources — both in *your* namespace, both within your own RBAC: an HTTPRoute that attaches the service to the shared MCP gateway, and an MCPServerRegistration that tells the gateway to discover its tools. Same authorization path, same audit line, same trust model as every governed call in this lab.
+
+. Create both resources:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+cat <<EOF | oc apply -n {user}-agent-workspace -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: order-metrics-mcp-route
+spec:
+  hostnames:
+    - {user}-order-metrics.mcp.local
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+      namespace: agent-office
+      sectionName: mcps
+  rules:
+    - backendRefs:
+        - kind: Service
+          name: order-metrics
+          port: 8080
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+---
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: {user}-order-metrics
+spec:
+  path: /mcp
+  prefix: {user}_orders_
+  state: Enabled
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: order-metrics-mcp-route
+EOF
+----
++
+Read what you just declared: the route attaches your service to the platform's `mcp-gateway` (its listeners deliberately admit routes from any namespace — attachment is the tenant's declaration, the gateway stays the platform's control point), and the registration names the route, the `/mcp` path your dev agent implemented, and the `{user}_orders_` prefix that namespaces your tools on the shared gateway. The prefix carries your seat name *on purpose*: every seat in this room is shipping a service with the same two tool names, and the gateway refuses a registration whose tool names collide with one already registered — the prefix is the tenancy boundary on a shared gateway, and yours has to be yours.
+
+. Watch the gateway discover the tools:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get mcpserverregistration {user}-order-metrics -n {user}-agent-workspace \
+  -o jsonpath='{.status.conditions[0].reason}: {.status.conditions[0].message}{"\n"}'
+----
++
+Within about 30 seconds: `Ready: server added successfully. Total tools added 2. Total prompts added 0` — the gateway walked your route, spoke MCP to the service the factory built, and found `metrics_stuck_orders` and `metrics_weekly_summary`.
+
+. Watch the platform hand the new tools to your assistant. A running agent lists its governed tools when its MCP runtime connects to the gateway, so a server registered afterwards is not in its list until it reconnects -- and it does not have to know that. The operator watches your namespace's registrations: the moment the set changes it reloads your gateway's cached runtimes, records the set on the workstation, and posts in the channel:
++
+[source,text,subs="+attributes"]
+----
+🔧 Governed tools changed — added {user}-order-metrics (2 tools). Reconnecting {user}-assistant to the gateway; the new tools are in its list from its next message.
+----
++
+Nothing for you to run. Read the same fact on the resource -- the operator's record of what your agent's gateway offers:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation {user}-assistant -n {user}-agent-workspace -o jsonpath='{.status.gatewayRegistrations}'; echo
+----
+
+. Confirm the tools are visible to your assistant. Open link:{mattermost_url}[Mattermost^], go to the `{user}-assistant` channel, and send:
++
+[source,text,subs="+attributes"]
+----
+Discover your governed tools. Do any of them start with "{user}_orders_"?
+----
++
+The assistant's governed tool surface now includes `{user}_orders_metrics_stuck_orders` and `{user}_orders_metrics_weekly_summary` — the service your dev agent shipped an hour ago, already indistinguishable in governance terms from the tools the platform shipped with.
+
+// VERIFIED LIVE 2026-08-27 (seats user1 + user3, attendee-privilege apply): registration
+// reached Ready with "Total tools added 2" in ~30s; the gateway exposes the tools to agents
+// as governed__{user}_orders_metrics_* (seat prefix + tool name; governed__ added by the
+// runtime's gateway client). The seat prefix is LOAD-BEARING: user3's registration with the
+// original shared prefix orders_ was refused — "conflicting tools discovered" against
+// user1's — because tool names are global on the shared gateway. spec.prefix is immutable;
+// a wrong one means delete + re-apply. Both resources are namespaced and within seat RBAC; mcp-gateway
+// listeners allow cross-namespace route attachment (from: All).
+
+=== Verify
+
+* The registration's condition reads `Ready: server added successfully. Total tools added 2`
+* The assistant reports governed tools beginning `{user}_orders_` in its Mattermost reply
+
+== Exercise 5: Close the loop
+
+The service is live. The gateway knows about it. The assistant agent that ACME's ops manager has been talking to all morning can now call it as a governed tool.
+
+This is the beat that makes it Morgan's Monday. Morgan had a request. The factory built the capability. The agent that Morgan talks to can now call it. Every step in that chain — intent, scaffold, build, sign, scan, promote, register, call — produced an artifact on the platform ACME governs.
+
+. Open link:{mattermost_url}[Mattermost^], sign in as `{user}`, and navigate to the `{user}-assistant` channel.
+
+. Ask the assistant to use the new service:
++
+[source,text,subs="+attributes"]
+----
+It's Monday. Using your new {user}_orders_metrics_stuck_orders and {user}_orders_metrics_weekly_summary tools: how many orders are stuck in processing (stuck = more than 7 days), and what does the weekly summary look like? Post the numbers here.
+----
++
+// VERIFIED LIVE 2026-10-13: with the two tool names in the prompt the assistant answered in 30 s: 75 stuck orders (oldest 178.92 days), weekly summary 156 orders (processing 68, shipped 53, delivered 33, cancelled 2), flagging the dataset's as_of date.
+
+. Read the agent's reply. It reports the stuck count and the weekly summary — Morgan's Monday answers, produced by governed calls to the service the factory shipped this session. The numbers match the platform's own `metrics_*` tools exactly, and the assistant may say so: the service serves the fixed export dataset from Exercise 2 (`as_of` 2026-07-01), not a live feed -- same data, now behind a tool *your* factory built, registered, and governs. No exports, no VLOOKUPs, and an audit entry where the spreadsheet used to be.
+
+. Read your tenant-side tool-call ledger to confirm the governed call was made:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc exec $(oc get pods -n {user}-agent-workspace -o name | grep {user}-assistant | head -1) \
+  -n {user}-agent-workspace -c openclaw -- \
+  sh -c 'grep -ho "\"toolName\":\"[a-z0-9_]*\"" \
+    /home/node/.openclaw/agents/{user}-assistant/sessions/*.jsonl \
+    | sort | uniq -c | sort -rn | head -20'
+----
++
+// VERIFIED LIVE 2026-10-13: path unchanged; the ledger listed governed__{user}_orders_metrics_stuck_orders and governed__{user}_orders_metrics_weekly_summary beside the governed__gitea_* calls.
++
+The `governed__{user}_orders_*` tool calls appear in the ledger alongside the `governed__gitea_*` calls you saw in Module 3 — the factory's newest tool, already leaving the same class of record as its oldest. The ledger entry is your tenant-side receipt. Its platform-side twin — the gateway's access-log line for this call — lives in the shared stream you proved in Module 3 you cannot open, shown on the shared screen during the session, on the same cluster, under the same retention policy as every other audit artifact ACME governs.
++
+// VERIFIED LIVE 2026-10-13: exact strings governed__user1_orders_metrics_stuck_orders and governed__user1_orders_metrics_weekly_summary for seat user1.
+
+. Verify the supply chain on the running image — with nothing but the registry API. First, resolve which digest your deployment actually runs:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+QUAY={artifact_registry}
+AUTH=$(python3 -c "import json;a=json.load(open('/tmp/quay.json'))['auths'];print(next(iter(a.values()))['auth'])")
+T=$(curl -sk "https://$QUAY/v2/auth?service=$QUAY&scope=repository:{registry_org}/{user}-order-metrics:pull" -H "Authorization: Basic $AUTH" | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+DIGEST=$(oc get pods -n {user}-agent-workspace -l app.kubernetes.io/name=order-metrics \
+  -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' | sed 's/.*@//')
+echo "running image digest:  $DIGEST"
+curl -sk -I "https://$QUAY/v2/{registry_org}/{user}-order-metrics/manifests/main" -H "Authorization: Bearer $T" \
+  -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+  | grep -i docker-content-digest | sed 's/.*: */tag main resolves to: /'
+----
+
+. Tekton Chains signed exactly that digest the moment the build finished. The signature and attestation live in the registry as artifacts named by the digest — confirm both exist, then read the provenance itself:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+SAFE=$(echo "$DIGEST" | sed 's/:/-/')
+curl -sk "https://$QUAY/v2/{registry_org}/{user}-order-metrics/tags/list" -H "Authorization: Bearer $T" \
+  | python3 -c "import sys,json; tags=json.load(sys.stdin)['tags']; import os; s=os.environ.get('SAFE','$SAFE'); print('signature:  ', s+'.sig' in tags); print('attestation:', s+'.att' in tags)"
+ATTL=$(curl -sk "https://$QUAY/v2/{registry_org}/{user}-order-metrics/manifests/$SAFE.att" \
+  -H "Authorization: Bearer $T" -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['layers'][0]['digest'])")
+curl -skL "https://$QUAY/v2/{registry_org}/{user}-order-metrics/blobs/$ATTL" -H "Authorization: Bearer $T" \
+  | python3 -c "
+import sys, json, base64
+d = json.load(sys.stdin)
+pl = json.loads(base64.b64decode(d['payload']))
+print('predicateType:', pl['predicateType'])
+print('subject:      ', pl['subject'][0]['name'].split('/')[-1] + '@sha256:' + pl['subject'][0]['digest']['sha256'][:16] + '...')
+print('signatures:   ', len(d.get('signatures', [])))"
+----
++
+`predicateType: https://slsa.dev/provenance/v0.2`, and the subject digest is the digest your pods run. One subtlety worth having seen once: your build pushes an *image index* (the multi-arch wrapper), and Chains signs the *image manifest inside it* — which is why the command above resolves `:main` down one layer before looking for the `.sig`. A signature check aimed at the index digest comes back empty and looks like a missing signature when nothing is wrong. That attestation records what inputs produced what outputs — the commit the dev agent's PR introduced, the pipeline tasks that built it, the image the gateway is about to serve as a tool. The chain from the tool call back to Morgan's intent is written down, signed, and stored beside the artifact it describes.
++
+NOTE: The platform's signing key pair lives in the cluster (`openshift-pipelines/signing-secrets`), and its public half is in your namespace as the `chains-public-key` ConfigMap. In a production review you would close the loop cryptographically with cosign: `cosign verify --key cosign.pub <image>@<digest>` and `cosign verify-attestation --type slsaprovenance --key cosign.pub <image>@<digest>` — both verified green against this build on this cluster.
++
+// VERIFIED LIVE 2026-08-27: .sig/.att present for the post-key build; cosign verify and
+// verify-attestation (slsaprovenance v0.2, subject == image digest, konflux task materials)
+// both passed against the cluster key from an admin shell. The curl-based read above is the
+// attendee-runnable form; terminal image carries no cosign binary (deliberate — the beat
+// teaches that signatures are registry artifacts, not tool magic).
+
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-06-loop-closed.png[Mattermost {user}-assistant channel showing the assistant's Monday-numbers reply from the order-metrics tools,link=self,window=blank,width=700]
+
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-06-audit-ledger.png[Terminal tool-call ledger showing the orders governed tool calls alongside the governed__gitea_* calls from Module 3,link=self,window=blank,width=700]
+
+=== Verify
+
+* The assistant agent replied in Mattermost with the stuck count and weekly summary from order-metrics
+* The tenant-side tool-call ledger shows `governed__{user}_orders_*` entries — the seat prefix from your MCPServerRegistration, behind the agent's gateway connection name
+* The image attestation command returns annotation data, confirming the pipeline's signing step produced a traceable artifact
+
+== What just happened
+
+AgentWorks ships a connector catalog. The list is fixed: the integrations the vendor chose to include, on the vendor's roadmap, installed on the vendor's timeline. Adding a connector means waiting for the vendor or filing a marketplace request.
+
+What you built here works differently. The factory consumed a natural-language intent, scaffolded a service from a governed template, built a signed and scanned image through the TSSC (Trusted Software Supply Chain) pipeline, promoted it with OpenShift GitOps, registered it behind the MCP gateway, and exposed it as a new governed tool — one that did not exist in the catalog before Morgan asked for it. The requesting agent called it the same session. The catalog grew with the work.
+
+The signed image carries an SLSA provenance attestation: the pipeline task that signed it recorded what inputs produced what outputs. Any operator can start at the tool call in Mattermost and trace back to the pull request the dev agent opened, to the scaffold skill the platform applied, to the intent Morgan posted. The supply chain is legible from end to end because every step produced an artifact on the platform ACME governs — not in a vendor's dashboard, not behind a vendor's API, not subject to a vendor's retention policy.
+
+And notice what you rebuilt: `metrics_stuck_orders` is the tool your Module 4 skill declared as its dependency and your Module 5 pipeline called headless. The platform's own copy — the one you have been calling since Module 4 — was born exactly this way, from exactly this intent. The factory does not just run on the paved road; it paves it.
+
+The MCP gateway is why the assistant agent could call a service that was not in the catalog when the lab started. The platform's trust boundary did not expand: same gateway, same authorization model, same per-call audit path. The catalog grew because you applied a resource to a namespace. On a vendor AI platform, that step is a support ticket. Here it is a `kubectl apply`.
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* ✓ How the same Developer Hub template produces materially different agents, because the one-sentence brief drives catalog composition — the skill kit follows the stated job, not a preset role menu
+* ✓ How a dev agent uses governed Gitea tools to scaffold a service, commit files, and open a pull request entirely through the governed tool path, with every call audited at the tenant-side ledger and the platform-side gateway log
+* ✓ What the TSSC supply-chain pipeline does before a service is promoted: build, sign (SLSA attestation), and scan — in that order, blocking promotion on a failing scan
+* ✓ How an MCPServerRegistration resource adds a shipped service to the gateway's tool catalog without changing the gateway's trust model or authorization path
+* ✓ Why "the factory's output became the factory's new capability" is the structural difference from a vendor connector catalog: on this platform, the catalog grows with the work, every capability runs on infrastructure ACME governs, and provenance covers the full chain from intent to governed tool call
+
+== Module summary
+
+Morgan's request went from intent to governed tool call in one lab session. The dev agent scaffolded the service, the supply chain built and signed it, GitOps promoted it, the gateway registered it, and the assistant called it before the session ended. Every step produced an artifact: a pull request, a signed image, a GitOps sync, an MCPServerRegistration, an audit entry.
+
+Module 7 isolates the one component this platform controls that a SaaS cannot: the model. You will swap the frontier endpoint for an in-cluster vLLM, re-run Module 4's task, and confirm that nothing else — no agent config, no tool wiring, no skill pin — changed.
+
+////
+Assets needed (capture against the live environment):
+
+. content/modules/ROOT/assets/images/module-06-dev-agent-compose.png — Developer Hub Suggest output for the dev brief: scaffold skill and Gitea integration in the composed kit, visibly distinct from the assistant's investigation kit
+. content/modules/ROOT/assets/images/module-06-dev-agent-reply.png — Mattermost channel for {user}-dev showing the agent's description of the Gitea tool calls it made and a link to the pull request it opened
+. content/modules/ROOT/assets/images/module-06-gitea-pr-diff.png — Gitea pull request diff showing the golden-path template files committed by the dev agent (Dockerfile, pipeline binding, service manifest, source skeleton)
+. content/modules/ROOT/assets/images/module-06-pipeline-graph.png — OpenShift Console PipelineRun task graph for order-metrics-on-push (sequence, then the fan-out)
+. content/modules/ROOT/assets/images/module-06-pipeline-stages.png — OpenShift Console PipelineRun task graph showing build, sign (cosign/SLSA), and scan tasks in Succeeded status
+. content/modules/ROOT/assets/images/module-06-service-running.png — Terminal showing order-metrics pod in Running status and curl to /healthz returning ok
+. content/modules/ROOT/assets/images/module-06-mcp-registration.png — Terminal showing MCPServerRegistration in Ready status; Mattermost reply from {user}-assistant confirming the orders tools are visible
+. content/modules/ROOT/assets/images/module-06-loop-closed.png — Mattermost {user}-assistant channel showing the assistant's Monday-numbers reply from the order-metrics tools
+. content/modules/ROOT/assets/images/module-06-audit-ledger.png — Terminal tool-call ledger showing the orders governed tool calls alongside the governed__gitea_* calls from Module 3
+////

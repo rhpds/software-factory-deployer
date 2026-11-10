@@ -1,0 +1,339 @@
+= Module 4: Teach with a skill artifact
+
+include::partial$_attributes.adoc[]
+
+Your agent arrived knowing how to investigate and document. It did not arrive knowing your organization's procedures. On commercial agent platforms, the AgentWorks pitch for this capability is "skills/harness, supply-chain graded" — skill packs from the vendor's catalog, versioned however the vendor tracks them, installed on the vendor's timeline.
+
+On this platform, know-how ships the way software ships — literally the same way. Each skill is a *versioned OCI artifact* in the cluster's own container registry: a repository and tag, a manifest, a config that declares its dependencies, a content hash — the storage discipline your images already live under, applied to know-how. Installing one is a declarative act your platform records. In this module you watch your agent fail at a task it was never taught, install a versioned artifact that teaches it, and then trace the supply chain from registry to running agent.
+
+The format inside the pack is deliberately not proprietary. A skill's body is a `SKILL.md` — the open Agent Skills format (Markdown with YAML frontmatter) that most agent runtimes now read. What the platform adds is everything *around* the file, the part the open format leaves to you: versioned distribution, declared dependencies, content hashing, and Kubernetes-native delivery. The packaging follows the shape the ecosystem's emerging Agent-Skills-as-OCI-artifacts draft defines — skills as registry artifacts, bundles as image indexes — so none of it is a private convention. Portable know-how, governed delivery.
+
+Plan on about 30 minutes.
+
+== Learning objectives
+
+By the end of this module, you'll be able to:
+
+* Show that an agent's know-how is a defined, inspectable set — a pinned golden catalog plus whatever its namespace declares
+* Install a versioned skill artifact into your own workspace as a declarative resource and watch the agent learn it hands-free
+* Verify the artifact's supply chain: registry coordinate, version, content hash, and declared dependencies
+* Explain what separates a versioned, dependency-declared know-how artifact from a folder of markdown files
+
+== Exercise 1: Establish what the agent does not know
+
+. Your agent's know-how is declared on its resource -- the list your hire wrote in Module 1. Read it:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation {user}-assistant -n {user}-agent-workspace -o jsonpath='{.spec.skillRefs}' | python3 -m json.tool
+----
++
+Every name is a skill the agent was hired with. Where does each one come from? The operator resolves the list against two places, in order: your own namespace first, then the platform's *golden catalog* -- the baked skills every tenant can draw on, pinned by digest in the platform's lockfile. It reports the outcome on the resource:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation {user}-assistant -n {user}-agent-workspace -o jsonpath='{.status.conditions[?(@.type=="SkillRefsResolved")].message}'; echo
+----
++
+Now your namespace's own `Skill` resources:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get skills -n {user}-agent-workspace
+----
++
+This list may be empty, and that is correct. A `Skill` resource lives in your namespace only when your agent's git repository brings a skill in from the *registry* rather than the golden catalog: a reference the operator resolves and verifies, never a copy. If Suggest built your hire entirely from the golden catalog, nothing had to be declared here. Exercise 2 is where that changes: you will bring a registry skill in yourself and watch the resource appear.
++
+Now the workspace itself:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw -- \
+  ls /home/node/.openclaw/workspaces/{user}-assistant/skills/
+----
++
+One folder per skill in the declaration -- no more, no fewer. Baked skills arrived from the platform's pinned catalog image, registry skills from `Skill` resources; a name the operator could not resolve would be missing here *and* reported in the condition you just read.
++
+Hold the three results in view, because that is the mental model: the declaration names the skills, the resources make registry skills resolvable, and the workspace holds exactly the declared set. Another agent hired in the same namespace with different picks gets a different folder. Nothing reaches an agent because it happens to sit in a namespace.
++
+Look at where that set comes from. Most of these are official published skills: five imported from Red Hat's link:https://github.com/openshift/agentic-skills[openshift/agentic-skills^] repository — the same content behind the Ecosystem Catalog's agentic skill pack for OpenShift — and two from the upstream Agent Skills project. Red Hat publishes those packs as SKILL.md files you download by hand; this platform imports them with source provenance, repackages each as a digest-pinned versioned artifact, and delivers them to every agent through the operator. Red Hat publishes the know-how; the platform ships it like software.
+
+. Now give the agent a task it was never taught. In link:{mattermost_url}[Mattermost^], send the message `new session` in the `{user}-assistant` channel (a clean session, so this module's before-and-after is honest — no slash: Mattermost swallows `/`-prefixed messages as its own commands), then send:
++
+[source,text]
+----
+Incident report: users say the orders API is returning 500s since about 10 minutes ago. Production. Triage this.
+----
+
+. Read the reply. It may be quite sensible — the agent typically investigates what it can reach, reports what it confirmed, and may even refuse to recommend a restart without evidence. That is good instinct. What it is not is *your organization's procedure*: no P1–P4 severity call from the facts as stated, no fixed investigation sequence, and a shape that is improvised fresh each run — send the same report twice and the structure changes. Notice also what it does when access runs out: it stops and asks. A triage procedure does not get to stop — it classifies from what is stated, marks the rest unverified, reaches for the governed tools it does have, and hands the human the exact commands for the rest. That gap is what a skill artifact carries.
+
+=== Verify
+
+* `oc get agentworkstation … -o jsonpath='{.spec.skillRefs}'` lists your hire's skills, and `platform-incident-triage` is not among them
+* The workspace skills listing has exactly those folders — and no `platform-incident-triage`; the `SkillRefsResolved` condition reports every ref resolved
+* The agent's triage reply has no consistent severity rubric or section structure
+
+== Exercise 2: Inspect the artifact in the registry
+
+The pack you are about to install exists as a published OCI artifact in the platform's container registry — versioned, content-addressed, and inspectable before you trust it, exactly like the images your cluster already runs.
+
+. Registry reads are authenticated. Wire up a token helper using the same pull secret your pods use (this shell keeps the variables for the rest of the module):
++
+[source,bash,role="execute",subs="+attributes"]
+----
+QUAY={artifact_registry}
+oc extract secret/quay-pull-secret -n {user}-agent-workspace --keys=.dockerconfigjson --to=- > /tmp/quay.json
+AUTH=$(python3 -c "import json;a=json.load(open('/tmp/quay.json'))['auths'];print(next(iter(a.values()))['auth'])")
+tok() { curl -sk "https://$QUAY/v2/auth?service=$QUAY&scope=repository:{registry_org}/$1:pull" -H "Authorization: Basic $AUTH" | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])"; }
+----
+
+. Read the artifact's OCI manifest:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+REPO={registry_org}/agent-office-skill-platform-incident-triage
+T=$(tok agent-office-skill-platform-incident-triage)
+curl -sk "https://$QUAY/v2/$REPO/manifests/1.1.1" \
+  -H "Authorization: Bearer $T" \
+  -H "Accept: application/vnd.oci.image.manifest.v1+json" | python3 -m json.tool
+----
++
+One config blob and one content layer, each pinned by digest — a skill packaged the way a container image is packaged. The `annotations` block already carries the content hash.
+
+. The config blob is the artifact's manifest *inside* the package — the `MANIFEST.MF` of this jar:
++
+[source,bash,role="execute"]
+----
+CFGD=$(curl -sk "https://$QUAY/v2/$REPO/manifests/1.1.1" -H "Authorization: Bearer $T" \
+  -H "Accept: application/vnd.oci.image.manifest.v1+json" | python3 -c "import sys,json;print(json.load(sys.stdin)['config']['digest'])")
+curl -skL "https://$QUAY/v2/$REPO/blobs/$CFGD" -H "Authorization: Bearer $T" | python3 -m json.tool
+----
++
+Name, version, a declared dependency (`mcpServer: ops-metrics`), a declared capability (`ops.incident-triage`), and `contentSha256` — the package describes its own content hash. Dependencies are *declared in the artifact*, not discovered by trial at runtime.
+
+. Read the content itself, straight out of the artifact's layer — the exact procedure your agent will follow:
++
+[source,bash,role="execute"]
+----
+LAYERD=$(curl -sk "https://$QUAY/v2/$REPO/manifests/1.1.1" -H "Authorization: Bearer $T" \
+  -H "Accept: application/vnd.oci.image.manifest.v1+json" | python3 -c "import sys,json;print(json.load(sys.stdin)['layers'][0]['digest'])")
+curl -skL "https://$QUAY/v2/$REPO/blobs/$LAYERD" -H "Authorization: Bearer $T" | tar -xzO SKILL.md
+----
++
+A fixed four-section reply structure, a P1–P4 severity rubric, an investigation sequence whose first step is a governed tool call — business impact through `metrics_stuck_orders` and `metrics_weekly_summary`, cited by name and number — an explicit rule that a denied step is marked "blocked — needs access" and handed to the human instead of stopping the triage — and an environment fact: this workstation carries no cluster CLI, so cluster commands are *written* for the human, never attempted. Institutional knowledge includes knowing where you are standing.
+
+. Version history is the repository's tag list — a first-class record:
++
+[source,bash,role="execute"]
+----
+curl -sk "https://$QUAY/v2/$REPO/tags/list" -H "Authorization: Bearer $T" | python3 -m json.tool
+----
+
+. The registry holds more than skills. A *pack* bundles a capability — and it is not a description pointing at names, it is an OCI image index whose members are pinned by digest. Read one:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+curl -sk "https://$QUAY/v2/{registry_org}/agent-office-pack-supply-chain-ops/manifests/0.1.0" \
+  -H "Authorization: Bearer $(tok agent-office-pack-supply-chain-ops)" \
+  -H "Accept: application/vnd.oci.image.index.v1+json" | python3 -m json.tool
+----
++
+Two members — a `skill` and a `tool` — each referenced by digest, and the description on the index says why they travel together: "Install this and the agent has both the skill and the tool it calls." The bundle physically contains what it claims: the members' manifests and blobs live inside the pack's own repository, so the pack is one signable, content-addressed unit. This module installs a single skill so you can audit every moving part; the capstone meets the pack from the other side, when the factory's own output becomes the governed tool a capability depends on.
+
+=== Verify
+
+* The artifact manifest shows one config blob and one content layer, both digest-pinned
+* The config blob declares version `1.1.1`, the `ops-metrics` dependency, and `contentSha256`
+* The layer serves the SKILL.md with the four-section procedure
+* `tags/list` shows all three versions — `1.0.0`, `1.1.0`, `1.1.1`
+* The pack index lists a `skill` member and a `tool` member by digest
+
+== Exercise 3: Install it into your workspace
+
+Installing a skill artifact is declarative, and it takes two declarations: a `Skill` resource that makes the artifact resolvable in your workspace, and one line in your agent's own definition that grants it. Start with the artifact — it is a *reference, not a copy*. The `Skill` resource you are about to apply carries no skill content at all: it pins a coordinate and a content digest, and the operator fetches the body from the registry, verifies the digest, and refuses delivery if the content has drifted. This is the same shape as the golden set's lockfile — a pinned reference, with the operator doing the fetching — applied at namespace scope. And namespace scope is the whole grant: every Skill resource in your namespace reaches every agent in it, no separate binding step (the FAQ at the end covers why).
+
+. Apply the rendered artifact into your own workspace:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc apply -n {user}-agent-workspace -f - <<'SKILL_EOF'
+apiVersion: agentoffice.ai/v1alpha1
+kind: Skill
+metadata:
+  name: platform-incident-triage
+  labels:
+    app.kubernetes.io/managed-by: agent-office
+    agentoffice.ai/skill-tier: registry
+  annotations:
+    agentoffice.ai/registry: {artifact_registry}
+    agentoffice.ai/pack-ref: agent-office/platform-incident-triage:1.1.1
+spec:
+  displayName: "Platform Incident Triage"
+  description: "Triage a reported platform incident with a fixed severity rubric and a reproducible investigation sequence. Use whenever a user reports an outage, degradation, error, or \"something is broken\" on the cluster."
+  version: "1.1.1"
+  dependencies:
+    - kind: mcpServer
+      name: ops-metrics
+  source:
+    packageRef:
+      ref: oci://{artifact_registry}/{registry_org}/agent-office-skill-platform-incident-triage:1.1.1
+      digest: 43a5c4aa250d78538e27f5bbba72b46e36c8a5742a108352d6a8a75a119d59a7
+      pullSecretName: quay-pull-secret
+      insecureSkipTLSVerify: true
+SKILL_EOF
+----
++
+NOTE: This YAML was rendered from the artifact itself — the `digest` is the `contentSha256` the package's own config blob declares, and `pullSecretName` names the same pull secret your pods already use, the `imagePullSecrets` convention applied to know-how. Rendering-and-applying is the client-side form of the platform's `/catalog/install`; a server-side install that targets your namespace directly is a named roadmap item.
+
+. The resource is now part of your workspace's declared state:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get skills -n {user}-agent-workspace
+----
++
+Your new `platform-incident-triage` is in the list, its VERSION column — `1.1.1` — straight from the artifact. The agent does *not* have it yet: a resource in the namespace is an offer, and the agent's own declaration is the grant.
+
+. Grant it. Open your agent's git repository (Module 2 showed the way: the *Source* link on its Developer Hub catalog entry), edit `base/agentworkstation.yaml`, and add one entry to the `skillRefs` list, indented like its neighbours:
++
+[source,yaml]
+----
+    - name: platform-incident-triage
+      version: "1.1.1"
+----
++
+Commit to a branch, open the pull request, read the diff — one line, the agent's skill list growing by one, pinned to a version — and merge it. OpenShift GitOps applies it within seconds.
+
+=== Verify
+
+* `oc get skills -n {user}-agent-workspace` shows `platform-incident-triage` at version `1.1.1`
+* The merged pull request added `platform-incident-triage` to the agent's `skillRefs`, and the running resource shows it: `oc get agentworkstation {user}-assistant -n {user}-agent-workspace -o jsonpath='{.spec.skillRefs}'`
+
+== Exercise 4: Watch the agent learn, then audit the supply chain
+
+. The operator noticed the declaration the moment OpenShift GitOps applied it and re-seeded the agent's workspace — no restart, no redeploy. Confirm:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw -- \
+  ls /home/node/.openclaw/workspaces/{user}-assistant/skills/ | grep incident
+----
++
+And ask the runtime itself what it can now do:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw -- \
+  openclaw skills list --agent {user}-assistant | grep incident
+----
++
+`✓ ready` — the runtime's own skill inventory lists your artifact, source `openclaw-workspace`, next to the baked set.
++
+The union rule in one line: the baked image is the floor, your namespace's declared skills stack on top, and a name collision goes to the pinned image — the platform's set cannot be silently overridden.
+
+. Now audit what you installed — four commands, each answering a question a supply-chain reviewer would ask:
++
+*Where did this come from?*
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get skill platform-incident-triage -n {user}-agent-workspace \
+  -o go-template='{{index .metadata.annotations "agentoffice.ai/pack-ref"}}{{"\n"}}'
+----
++
+*Is the content what the registry published?* Three hashes, three parties: what you pinned in the spec, what the operator resolved and delivered, and what the artifact in the registry declares as its own content:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get skill platform-incident-triage -n {user}-agent-workspace \
+  -o jsonpath='pinned:    {.spec.source.packageRef.digest}{"\n"}delivered: {.status.contentSha256}{"\n"}'
+T=$(tok agent-office-skill-platform-incident-triage)
+CFGD=$(curl -sk "https://$QUAY/v2/$REPO/manifests/1.1.1" -H "Authorization: Bearer $T" \
+  -H "Accept: application/vnd.oci.image.manifest.v1+json" | python3 -c "import sys,json;print(json.load(sys.stdin)['config']['digest'])")
+curl -skL "https://$QUAY/v2/$REPO/blobs/$CFGD" -H "Authorization: Bearer $T" \
+  | python3 -c "import sys,json;print('registry:  '+json.load(sys.stdin)['contentSha256'])"
+----
++
+All three match. And the pin has teeth: if the registry ever served different bytes for this version, the operator would refuse to deliver them — the Skill's `ContentResolved` condition goes false instead of the agent silently learning something you never reviewed.
++
+// VERIFIED LIVE 2026-08-27 (v1.1.1 via oci:// packageRef): pinned, delivered, and the artifact's self-declared contentSha256 all matched (43a5c4aa…) on the first live run; a tampered digest was refused with zero files materialized.
++
+*What does it need?*
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get skill platform-incident-triage -n {user}-agent-workspace \
+  -o jsonpath='{.spec.dependencies}'; echo
+----
++
+*And the golden set itself — who pins it?* Read the platform's lockfile: one entry per baked skill, each with an exact digest, closed by the digest of the composed catalog image. The compose run that builds it refuses to push unless the result is file-for-file identical to what shipped before — an equivalence gate.
++
+[source,bash,role="execute"]
+----
+curl -s https://raw.githubusercontent.com/enterprisewebservice/agent-office/main/skills-image/skills-lock.yaml | head -20
+----
+
+=== Verify
+
+* The workspace skills directory now contains `platform-incident-triage`
+* `pack-ref` reads `agent-office/platform-incident-triage:1.1.1`
+* `spec.dependencies` declares the `ops-metrics` mcpServer
+* The lockfile shows per-skill digests and a composed-image digest
+
+== Exercise 5: The behavior change
+
+. Skills load when a session starts, so the agent must begin a fresh one before it can use the new skill. The chat bridge does this for you: within a minute of the workspace re-seed it posts *🔄 Skills changed — added: platform-incident-triage* in your agent's channel and starts a fresh session. If you do not see that message, send `new session` yourself (no slash — Mattermost swallows `/`-prefixed text). Then send the *same* incident report as before:
++
+[source,text]
+----
+Incident report: users say the orders API is returning 500s since about 10 minutes ago. Production. Triage this.
+----
+
+. Read the reply against the procedure you read in the registry: a *Severity* section with a P1–P4 classification and one-sentence justification, *What we know* holding only stated or verified facts, an *Investigation sequence* in the pack's fixed order, and *Next actions* capped at three bullets.
++
+// VERIFIED LIVE 2026-08-27 (v1.1.1, fresh session): exactly the four headings in order; P1 (provisional); both governed metrics_* tools cited by name and number and present in the session ledger; ZERO exec attempts (1.1.0 made four — the environment-fact line eliminated them). The 1.0.0 -> 1.1.0 -> 1.1.1 tag history is itself the tune-and-republish loop, demonstrated three times. If a future model drifts, publish 1.1.2.
++
+Look at how the reply handles what blocked the untrained run. The severity call is made from the facts as stated — not deferred until someone grants access. Business impact is cited from the governed `metrics_*` tools, by name and number: the same calls that crossed the MCP gateway in Module 3, leaving the same audit lines. And where the procedure needs cluster access the agent does not have, the step says "blocked — needs access" with the exact command for the human — written, not attempted: the pack carries the environment fact that this workstation has no cluster CLI, so the run wastes no attempts on commands that cannot work. The skill did not widen the agent's permissions by one degree; it taught the agent to use the governed path it already had.
++
+Same agent. Same model. Same tools. The difference arrived as a versioned dependency, and everything about it — where it came from, what it contains, what it needs — is written down where your platform can read it.
+
+=== Verify
+
+* The triage reply now opens with a `Severity` section and follows the pack's four-section structure
+* `What we know` cites governed `metrics_*` tool results by name; denied steps read "blocked — needs access" instead of ending the triage
+* Nothing about the agent changed except the skill: same pod, same model, same identity
+
+== What just happened
+
+The AgentWorks pitch this module answers is "skills/harness, supply-chain graded." On commercial platforms of this class, a skill is a folder of instructions: you get whatever the marketplace serves today, with no version history you control, no content hash, no dependency declaration, and no way to pin what your agents run.
+
+What you just did instead:
+
+* *Published know-how as an artifact* — coordinates, version, manifest, declared dependencies, in a registry your platform federates alongside governed tool definitions and capability packs that bundle skill and tool as one installable unit
+* *Installed it declaratively, by reference* — a resource in your namespace pinning coordinate and digest, the operator fetching and verifying, applied with the same tool as any other platform change
+* *Watched the operator deliver it* — hands-free re-seed, union over a digest-pinned golden set that an equivalence gate keeps honest
+* *Audited the whole chain* — coordinate, content hash, dependencies, lockfile — with four commands
+
+Know-how that ships like software can be reviewed like software, pinned like software, and rolled back like software. That is the supply-chain grade.
+
+== How the pieces fit — the questions platform people ask
+
+Every one of these came up the first time a platform engineer walked this module. Short answers, mechanics only.
+
+*Do the baked image's skills turn into Skill resources?* No. Nothing is generated. The image is mounted read-only; at seed time the operator copies its skill folders into the agent's workspace, then writes one more folder for each Skill resource in the namespace. On a name collision the image wins. The runtime scans one folder — it never sees images or resources, only files.
+
+*One image per skill, or many skills per image?* Both, on purpose: *versioned 1:1, delivered N:1*. Every skill is published as its own digest-pinned artifact — its own version history, its own supply-chain unit, the thing a `packageRef` or a lockfile line can point at. The catalog image every gateway mounts is *composed from* those, one layer per pinned artifact, by a build job reading the lockfile. Pods never pull the small images; the small images are the source of the big one — the relationship packages have to a machine image.
+
+*Why bother with the small images at all?* Because they give you answers a folder-built image cannot: which exact version of each skill is in production (the layers *are* the per-skill digests), single-skill blast radius for change, review, and rollback, and one artifact that feeds every lane — the bake, the namespace install, and the pack listing. Supply-chain gates (signing, scanning) attach per unit.
+
+*What reads the registry, and when?* Three readers, three moments. The compose job at *bake* time (lockfile → catalog image, for everyone). The composer at *hire* time — module 1's Suggest button picks from this catalog. The operator at *install* time — a pack expands into its member skills as Skill resources, each labeled with the pack it came from; the pack itself persists only as that label.
+
+*We already have a hand-built multi-skill image. How do we adopt this?* The way this platform did: split each skill into its own artifact, generate the lockfile pinning them, recompose the big image from the pieces, and let an equivalence gate prove the rebuilt image is file-for-file identical to the hand-built one before anything ships. From that day the order reverses permanently: artifact first, image derived.
+
+*Didn't installing a skill used to need a SkillBinding?* It still does, and now you never write one: the agent's `skillRefs` is the grant, and the operator maintains one `SkillBinding` per entry that names a `Skill` in the namespace — look at `oc get skillbindings -n {user}-agent-workspace`. Under the earlier discovery model the namespace itself was the grant, which meant every agent in it knew every skill in it, whatever it was hired with. An agent's know-how is its own declaration now.
+
+*How is this different from an editor plugin (a Claude Code plugin, say)?* A plugin is a per-workstation bundle for one runtime — skills, commands, hooks, and MCP config shipped together as a git repo you trust as a whole and install on each laptop. Here the unit is one skill, immutable by digest, delivered by the platform to every agent that should have it — and the executable parts are deliberately *not* bundled alongside: tools are governed separately behind the MCP gateway, which is the trust boundary this whole lab is about. Plugins optimize convenience on a laptop; this model optimizes provenance on a platform.
+
+== Module summary
+
+You taught your agent a procedure by installing a versioned artifact, and you can prove what was installed, where it came from, and what it depends on. Module 5 takes the same agent out of the chat window entirely: headless, inside a pipeline, with its autonomy set by platform policy.

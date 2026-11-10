@@ -1,0 +1,238 @@
+= Module 2: The agent is in git
+include::partial$_attributes.adoc[]
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+// Attributes used by this module (injected by Showroom from lab user data):
+// {user}, {password}, {ocp_version}, {devhub_url}, {gitops_url}, {mattermost_url}
+
+The AgentWorks question for this module is straightforward: where does the hosted agent live? On a vendor platform, the answer is the vendor's control plane. On this platform, the answer is a git repository that ACME owns, on ACME's cluster.
+
+You created that repository in Module 1, through the Developer Hub template. This module opens it, changes what is inside, and watches OpenShift GitOps carry the change to the running agent. Then it undoes the change the same way.
+
+Plan on 25 minutes: tour the repository, change the agent's directive via a pull request, confirm the behavior changed, then roll it back.
+
+== Learning objectives
+
+By the end of this module, you'll be able to:
+
+* Locate the agent's git repository from its Developer Hub catalog entry and identify its key files
+* Modify the agent's behavior by editing its directive and merging a pull request
+* Trace the reconciliation from a merged commit to a live behavior change on the cluster
+* Roll back an AI agent's behavior with a git revert, with no vendor console and no support ticket
+
+== Exercise 1: Tour the agent's repository
+
+The template that ran in Module 1 created a git repository for your agent, named after it (`{user}-assistant-agent-gitops`) and linked from its Developer Hub catalog entry. The repository holds everything the agent is: a `base/` directory with the manifests that declare it as an OpenShift workload, deployment overlays, the Argo CD application, the catalog entry, and a `wiki-seed/` directory that seeds the agent's workspace.
+
+. Open link:{devhub_url}[Red Hat Developer Hub^] and sign in
+ifeval::["{seat_mode}" == "self-service"]
+with the account you registered.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+as `{user}` with password `{password}`.
+endif::[]
+
+. In the left navigation, click *Catalog* and search for `{user}-assistant`. Open the catalog entry.
+
+. In the catalog entry, find the *Source* link and click it to open the agent's git repository.
++
+NOTE: This is the repository the scaffolding run created at the end of Module 1. Everything the agent runs with is declared here.
+
+. In the repository, open the `base/` directory and then `base/agentworkstation.yaml`. The `spec` section contains the values the platform wired in Module 1: the model reference, the gateway reference, and the skills. This is the same content you read with `oc get agentworkstation` in Exercise 3 of Module 1.
+
+. In that file, find `spec.systemPrompt`.
++
+This field is the agent's directive: the standing instructions it receives at the start of every conversation. The sentence you wrote in Module 1 is its seed. The job description is part of the workload manifest itself; there is no separate configuration store to drift out of sync.
+
+. Look at the neighboring files before moving on: `base/agentgateway.yaml` declares the gateway the agent's tool calls route through (Module 3 governs it), `base/knowledgebase.yaml` declares the knowledge base the agent curates, and `wiki-seed/` seeds the agent's working files.
+
+. In the terminal, confirm the running resource matches what the repository declares:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation -n {user}-agent-workspace -o yaml
+----
++
+Find `{user}-assistant` in the output and verify its `spec` matches the manifest you just read.
+
+// TODO: Add screenshot
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-02-repo-tour.png[Agent git repository showing base/agentworkstation.yaml with the systemPrompt field,link=self,window=blank,width=700]
+
+=== Verify
+
+* The Developer Hub catalog entry for `{user}-assistant` has a Source link pointing to a git repository
+* The repository contains a manifest that defines the AgentWorkstation resource, with `spec` values matching what Module 1 shows
+* `spec.systemPrompt` in `base/agentworkstation.yaml` contains the agent's standing instructions
+* The running AgentWorkstation resource in the cluster matches what the repository declares
+
+== Exercise 2: Change the agent's directive
+
+A behavior change on a vendor AI platform is a toggle in someone else's control plane. Here it is a pull request: the diff shows exactly what changed, the review records who approved it, and the merge is the moment of record.
+
+. In the repository's web UI, navigate to `base/agentworkstation.yaml`.
+
+. Click the edit icon (pencil) to open the in-browser editor.
+
+. Add the following line at the end of the `systemPrompt` block, indented to match the lines above it:
++
+[source,text]
+----
+Always answer in exactly 3 bullet points. No more, no fewer.
+----
+
+. Commit the change to a new branch. Use a name you will recognize, such as `add-bullet-rule`.
+
+. Open a pull request from that branch to the main branch.
+
+. Read the pull request diff before merging. What you are reviewing is a proposed change to this agent's standing instructions: the `systemPrompt` is the job description the agent follows in every conversation.
++
+NOTE: On a real team, this diff goes to a reviewer before the agent's behavior changes in production. Reviewing AI behavior changes is the same process as reviewing any other configuration change.
+
+. Merge the pull request.
+
+After the merge, OpenShift GitOps detects the new commit on the main branch and begins syncing. You do not need to trigger anything manually.
+
+. Open link:{gitops_url}[OpenShift GitOps^] and sign in
+ifeval::["{seat_mode}" == "self-service"]
+with the account you registered.
+endif::[]
+ifeval::["{seat_mode}" != "self-service"]
+as `{user}` with password `{password}`.
+endif::[]
+
+. Open the Application named `{user}-agents-{user}-assistant-agent`. Do not expect to catch it mid-sync: on this platform the automated sync typically completes within seconds of your merge, so by the time you switch tabs it usually already reads *Synced* again. The evidence is in *Last Sync* (open the Application's *History*): the synced revision matches the commit you just made.
+
+. The AgentGateway pod does not restart for a directive change — and that is the point: the operator re-renders the agent's identity in place, in seconds, while the pod stays `Running`. Verify with the terminal instead of waiting on pods:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentworkstation {user}-assistant -n {user}-agent-workspace -o jsonpath='{.spec.systemPrompt}'; echo
+----
++
+The directive printed is the one you just merged.
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pods -n {user}-agent-workspace
+----
+
+. Open link:{mattermost_url}[Mattermost^], sign in as `{user}`, and find the `{user}-assistant` channel. Send the same question from Module 1:
++
+[source,text]
+----
+Introduce yourself. What is your purpose, and which skills were you hired with?
+----
+
+. Read the reply. It should follow the new rule: exactly 3 bullet points, no more, no fewer.
+
+// TODO: Add screenshot
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-02-pr-diff.png[Pull request diff showing the new bullet-point rule added to the directive file,link=self,window=blank,width=700]
+
+// TODO: Add screenshot
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-02-gitops-sync.png[OpenShift GitOps Application view showing the agent Application Synced and Healthy after the PR merge,link=self,window=blank,width=700]
+
+// TODO: Add screenshot
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-02-three-bullet-reply.png[Mattermost channel showing the agent's reply constrained to exactly 3 bullet points,link=self,window=blank,width=700]
+
+=== Verify
+
+* The pull request merged successfully and the main branch contains the new directive line
+* The OpenShift GitOps Application for `{user}-assistant` reports *Synced* and *Healthy*
+* The AgentGateway pod in `{user}-agent-workspace` is in `Running` status
+* The agent's reply in Mattermost contains exactly 3 bullet points
+
+== Exercise 3: Roll back the change
+
+Rolling back an AI agent's behavior on this platform is the same operation as rolling back any other workload: a git revert. The same reconciliation loop that applied the change applies the reversal.
+
+. In the repository's web UI, open the commit history for the main branch and find the merge commit from Exercise 2.
+
+. Use the revert button in the web UI to create a revert commit targeting that merge. Accept the defaults and merge the revert.
++
+If you prefer the command line, clone the repository and run:
++
+[source,text,subs="+attributes"]
+----
+# Replace <repo-url> with the URL shown in the catalog entry.
+git clone <repo-url>
+cd <repo-directory>
+
+# Find the merge commit hash.
+git log --oneline -5
+
+# Revert it. Replace <commit-hash> with the hash of the Exercise 2 merge commit.
+git revert <commit-hash> --no-edit
+git push origin main
+----
+
+. Return to link:{gitops_url}[OpenShift GitOps^]. The same loop runs — and just as fast: check the Application's *History* for a new sync against your revert commit rather than waiting to see a transition.
+
+NOTE: The directive lives in the agent's identity, not in the conversation — but the conversation remembers itself. A chat thread that just produced several three-bullet answers may echo that style for a turn or two even after the rollback lands, because the model sees its own recent replies. That is history momentum, not the directive surviving: read the directive back with the `oc` command above to see the enforced truth. For a clean-room proof, send the message `new session` in the agent's channel — the agent confirms the conversation history is cleared, so the very next answer reflects the current directive with zero transcript behind it. (Spell it without a slash: Mattermost intercepts any message that starts with `/` as one of its own slash commands and never delivers it.)
+
+. Confirm the AgentGateway pod stayed `Running` through the rollback — same pod, no restart, exactly as in Exercise 2:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pods -n {user}-agent-workspace
+----
+
+. Open link:{mattermost_url}[Mattermost^] and send the same question again:
++
+[source,text]
+----
+Introduce yourself. What is your purpose, and which skills were you hired with?
+----
+
+. Read the reply. The bullet-point rule is gone. The agent's answer returns to its original form.
+
+// TODO: Add screenshot
+// TODO screenshot (capture during the live walkthrough, then restore):
+// image::module-02-rollback-reply.png[Mattermost channel showing the agent's reply after rollback, free-form and no longer constrained to 3 bullet points,link=self,window=blank,width=700]
+
+=== Verify
+
+* The revert commit appears on the main branch of the agent's repository
+* The OpenShift GitOps Application for `{user}-assistant` shows *Synced* and *Healthy*
+* The AgentGateway pod is in `Running` status
+* The agent's reply in Mattermost no longer follows the 3-bullet-point rule
+
+== What just happened
+
+On a vendor AI platform, a hosted agent's configuration lives in the vendor's control plane. Changing it means opening the vendor's UI. Rolling it back depends on whether the vendor stored the previous version.
+
+What you did here is structurally different. The agent's directive is a file in a git repository. Changing it is a pull request with a diff. Reviewing it is code review. Merging it is the moment of record. Reverting it is a git revert. Every step produces an artifact in the same system the rest of ACME's software uses: a commit, a pull request, a review comment, an audit log.
+
+OpenShift GitOps propagated every commit to the cluster without a deploy command. The operator reloaded the agent when the workspace changed. You controlled the behavior by controlling the file.
+
+The AgentWorks question for this module was "where does the hosted agent live?" The answer: in git, exactly where everything else at ACME lives.
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* ✓ How to locate an agent's configuration by following the catalog entry's Source link to its git repository
+* ✓ Why the directive file is the source of truth for an agent's behavior, and why changing it is equivalent to changing any other workload's configuration
+* ✓ How OpenShift GitOps carries a merged commit to the cluster without a manual deploy step
+* ✓ How to roll back an agent's behavior with a git revert, using the same process as any other rollback at ACME
+
+== Module summary
+
+The agent's behavior is a file. A pull request changes it. OpenShift GitOps propagates the change. A git revert undoes it. No special AI tooling, no vendor console, no support ticket.
+
+Module 3 turns to governance. You know the agent's tool calls route through a Model Context Protocol gateway. In Module 3, you will inspect that gateway: audit which tools the agent can reach, approve or deny a tool extension request, and confirm the agent cannot exceed what the gateway permits.
+
+////
+Assets needed (capture against the live environment):
+
+. content/modules/ROOT/assets/images/module-02-repo-tour.png - Agent git repository in the web UI, showing the manifests directory and the directive/workspace file open
+. content/modules/ROOT/assets/images/module-02-pr-diff.png - Pull request diff view showing the new "Always answer in exactly 3 bullet points" line added to the directive file
+. content/modules/ROOT/assets/images/module-02-gitops-sync.png - OpenShift GitOps Application view for {user}-assistant, showing Synced and Healthy after the PR merge
+. content/modules/ROOT/assets/images/module-02-three-bullet-reply.png - Mattermost channel with the agent's reply constrained to exactly 3 bullet points
+. content/modules/ROOT/assets/images/module-02-rollback-reply.png - Mattermost channel showing the agent's free-form reply after the revert, no longer constrained to 3 bullets
+////

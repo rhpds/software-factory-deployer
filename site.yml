@@ -1,0 +1,32 @@
+---
+site:
+  title: 'The OpenShift Software Factory: Agents as Staff'
+  url: https://github.com/rhpds/software-factory-deployer
+  start_page: modules::index.adoc
+
+asciidoc:
+  attributes:
+    edition-rhdp: ''
+
+content:
+  sources:
+    - url: .
+      start_path: content
+
+ui:
+  bundle:
+    url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/latest/ui-bundle.zip
+    snapshot: true
+  supplemental_files: ./ui-rhdp
+
+antora:
+  extensions:
+    - require: '@sntke/antora-mermaid-extension'
+      mermaid_library_url: https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs
+      script_stem: header-scripts
+      mermaid_initialize_options:
+        start_on_load: true
+    - require: '@andrew-jones/antora-tabs-extension'
+
+output:
+  dir: ./www

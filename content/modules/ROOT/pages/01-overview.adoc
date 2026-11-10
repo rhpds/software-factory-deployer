@@ -1,0 +1,194 @@
+= The OpenShift Software Factory overview
+include::partial$_attributes.adoc[]
+:toc:
+:toc-placement: preamble
+:icons: font
+
+// Attributes expected from the Showroom playbook (or partials/_attributes.adoc): {ocp_version}
+
+Why this lab exists, what you build, and how the 8 modules fit together.
+
+== Your role and mission
+
+You are a platform engineer at ACME Financial. Last month your leadership watched an AgentWorks demo (AgentWorks is fictional: a composite of the commercial AI-development-agent platforms; its capabilities here are representative of the category, not any single vendor) and came back wanting what they saw: AI development agents that take on real engineering work (plan, code, test, ship) and hand back finished results.
+
+They are right to want it. The commercial agent platforms have proven this market. Their agents deliver delegated work end to end, and enterprises pay for the result. Nothing in this lab argues with that.
+
+The problem is the shape of the product. A vendor control plane holds organization metadata and authentication. Vendor-managed machines run the agents. Governance, identity, and telemetry are re-implemented inside the vendor's stack, then integrated back into yours. For a regulated financial company, the 3 things that product needs are the 3 things ACME cannot hand over: credentials, the audit trail, and the software supply chain.
+
+Your manager put it plainly: "We want the delegation model. We are not shipping our credentials, our source, and our audit trail into someone else's control plane to get it."
+
+**Your assignment**: build the equivalent capability on the OpenShift {ocp_version} cluster ACME already governs. Hire an agent through Red Hat Developer Hub, govern its tools through a gateway, teach it with versioned know-how, and put it to work in the pipeline.
+
+**The objective**: a microservice running in production that an agent shipped, with the git history, gateway audit trail, image signatures, and scan results to prove every step happened inside ACME's boundary.
+
+**The workplace is the value. The brain is a choice.** That is the claim. The 8 modules in this lab are the proof.
+
+== The concept map: AgentWorks to OpenShift
+
+Every concept AgentWorks sells maps to something you build or use in this lab. Keep this table handy; the modules walk it top to bottom.
+
+[cols="3,4,1",options="header"]
+|===
+|AgentWorks sells |You build and use |Module
+
+|**Hosted agents**: autonomous agents that plan, code, and ship
+|`AgentWorkstation` custom resources. An operator turns YAML into a running agent: a pod with a persistent workspace, declared in git
+|1–2
+
+|**The vendor console**: delegate work, onboard and manage agents
+|Red Hat Developer Hub. Agents are catalog components; hiring one is a scaffolder template
+|1
+
+|**Connectors**: integrations with source control, ticketing, and chat
+|Model Context Protocol (MCP) servers behind a governed gateway (Red Hat Connectivity Link): per-call authorization, credential injection, a full audit trail
+|3
+
+|**Skills**: per-agent know-how files
+|Mindifact packs: versioned know-how with dependencies, delivered to the agent like a software artifact
+|4
+
+|**The headless runner**: headless agent runs in CI
+|A headless agent task inside an OpenShift Pipelines (Tekton) run, executing in the cluster
+|5
+
+|**Autonomy levels**: flags the agent process sets on itself
+|Gateway tool-gating profiles enforced outside the agent: infrastructure the agent cannot override
+|3, 5
+
+|**The Software Factory**: code-gen, validate, and release stages
+|The supply chain you already trust: build, sign, scan, produce a software bill of materials (SBOM), promote through OpenShift GitOps
+|6
+
+|**Model independence**: bring your own keys, route across providers
+|Models-as-a-Service endpoints for frontier models, and in-cluster vLLM on Red Hat OpenShift AI for sovereign ones. Swap the model reference; nothing else changes
+|7
+|===
+
+== Success criteria for your mission
+
+By the end of this workshop you can:
+
+* Provision a governed agent from a Red Hat Developer Hub template → 1 sentence of intent becomes a repo, a GitOps application, and a running agent you can trace end to end in git
+* Govern agent tool access through an MCP gateway → per-call authorization and an audit line for every tool call, with credentials injected at the gateway so the agent never holds a key
+* Deliver know-how as a versioned skill artifact → the agent's behavior changes because a dependency arrived, not because someone hand-edited a prompt
+* Run a headless agent inside an OpenShift Pipelines run → delegation in CI, with autonomy set by a gateway profile enforced outside the agent process
+* Ship a microservice through the agent-driven supply chain → build, sign, scan, and promote with evidence a security team can gate on
+* Swap the agent's model between a frontier endpoint and in-cluster vLLM → same agent, same tools, same governance; only the brain changed
+
+**Technical outcome**: you leave able to assemble this pattern from components your clusters likely already run.
+
+**Business outcome**: agent capability without a second platform to secure, audit, and pay for.
+
+== Target audience
+
+This workshop is for:
+
+* Platform engineers who run OpenShift and are being asked when the organization gets agents
+* DevOps and CI/CD owners who want agents inside the supply chain, not beside it
+* Architects doing a build-versus-buy evaluation of enterprise agent platforms
+* Security engineers who want to read the audit trail before they believe the pitch
+
+== Prerequisites
+
+You should have:
+
+* Working comfort in the OpenShift web console and with basic `oc` commands
+* A normal git workflow: branch, commit, pull request, review
+* Conceptual familiarity with Kubernetes resources: Deployments, operators, custom resources
+* No AI or model-serving background: the environment provides every model endpoint you use
+
+Environment access, URLs, and credentials are on the next page.
+
+== ACME Financial's project challenges
+
+**The situation**: ACME evaluated hosted agent products and hit the same wall each time. The capability is real; the custody model is not acceptable.
+
+**Current challenges**:
+
+* **Credential custody**: hosted agents hold tokens for source control, ticketing, and internal APIs → an outside control plane joins ACME's security boundary
+* **Audit locality**: the record of agent actions lives in the vendor's tenant → compliance cannot reconstruct an incident from ACME's own logs
+* **Supply chain provenance**: agent-written code ships without in-house attestation → no signatures, SBOM, or scan gates the security team controls
+* **Deployment reach**: ACME runs OpenShift in 2 public clouds and on-premises, including restricted networks → a hosted-only control plane cannot follow the workloads
+
+**The opportunity**: everything a hosted agent platform re-implements (identity, tool governance, pipelines, promotion, audit) already runs on ACME's cluster as supported product. This lab assembles those pieces into the same delegation capability, governed in place.
+
+== How the pieces fit
+
+An agent here is a workload, not a SaaS seat. 4 flows carry the whole architecture:
+
+. **Hire**: a sentence typed into Red Hat Developer Hub renders a git repo and a set of custom resources; an operator turns them into a running agent with a persistent workspace.
+. **Work**: the agent does its work inside its AgentGateway pod, using know-how installed from versioned skill artifacts.
+. **Tool call**: every tool call passes through the MCP gateway: authorize the call, inject the credential, write the audit line. The agent never sees a key.
+. **Ship**: the agent's commits ride the supply chain: build, sign, scan, and promote through OpenShift GitOps. The agent's own definition changes through the same gates.
+
+// TODO: Add architecture diagram
+// Uncomment when the diagram file exists:
+// image::software-factory-architecture.png[Architecture diagram showing Red Hat Developer Hub as the front door, an operator reconciling custom resources into agent workstation pods, the MCP gateway governing tool calls, swappable model endpoints, and the supply chain from git through pipeline to GitOps promotion,link=self,window=blank,width=800,title="The OpenShift Software Factory at a glance"]
+
+== Workshop agenda
+
+The hands-on core runs about 3.5 hours. The estimates below include reading and verification, so plan a half day. Module 6 is the long one on purpose: it is the capstone.
+
+[cols="2,5,1",options="header"]
+|===
+|Module |What you do |Time
+
+|1. Hire an agent
+|Type 1 sentence into a Red Hat Developer Hub template. Review what the platform wires up (repo, skills, tool grants, model) and watch the agent come online.
+|~30 min
+
+|2. The agent is in git
+|Open the agent's repo. Change its behavior through a pull request, watch OpenShift GitOps reconcile it, and roll it back.
+|~25 min
+
+|3. Governed tools
+|Call tools through the MCP gateway as the agent. Read the per-call authorization decisions and the audit log. Search the agent's environment for credentials, and find none.
+|~30 min
+
+|4. Teach with a skill artifact
+|Install a versioned know-how pack on your agent. Re-run the same task and compare its behavior before and after.
+|~30 min
+
+|5. Headless agent in the pipeline
+|Trigger an OpenShift Pipelines run with an agent task inside it. Set the agent's autonomy with a gateway profile, not an agent flag.
+|~30 min
+
+|6. Ship to production (capstone)
+|An ops manager asks for a service. Your dev agent scaffolds it from a golden-path template; the supply chain builds, signs, and scans it; OpenShift GitOps promotes it. Then the ops manager uses what it asked for: the service joins the MCP gateway as a governed tool, the agent calls it to complete the original intent, and you walk the audit trail from ask to answer.
+|~60 min
+
+|7. Swap the brain
+|Point the agent at an in-cluster vLLM endpoint instead of a frontier model. Re-run module 4's task. Nothing else changes.
+|~20 min
+
+|8. Sandbox the agent
+|Put the honest AgentWorks comparison on the table: where this stack is ahead, where theirs is, and what closes the gaps.
+|~15 min
+|===
+
+== What success looks like
+
+By the end of module 8 you can show, live:
+
+* A production microservice with a route serving traffic, shipped end to end by an agent hired in module 1
+* The agent itself declared in git (prompt, tools, model, skills) reviewed and revertible like any other code
+* A gateway audit line for every tool call the agent made along the way
+* Signatures, an SBOM, and scan results for every image it shipped
+* The same agent doing the same work on a sovereign in-cluster model
+
+None of it required a second platform. The pattern is made of OpenShift, so it goes where OpenShift goes (AWS, Azure, Google Cloud, on-premises, or fully disconnected) and every piece is declared in git, so rebuilding it is a pull request, not a project.
+
+== Common questions
+
+**"Is this lab bashing the commercial agent vendors?"**
+→ No. They proved enterprises will delegate real work to agents, and the closing section of module 8 credits what their product does better today, the review surface among them. The comparison is about where governance lives; judge that yourself in module 6.
+
+**"I have never run an AI model. Am I in the right room?"**
+→ Yes. The environment provides the model endpoints. In module 7 you change which brain the agent uses by editing 1 field; you never operate the model server itself.
+
+**"Does an agent really push to production here?"**
+→ Yes, through the same gates a human commit rides: build, sign, scan, and promote. Module 6 ends with you loading the live route and walking the audit trail behind it.
+
+**"How much of this is supported product versus reference build?"**
+→ The governance surfaces (Red Hat Developer Hub, OpenShift Pipelines, OpenShift GitOps, Red Hat Connectivity Link) are supported products. The agent operator and the platform's skill registry are reference builds running in your environment. Module 8's closing gap list labels every component, so you leave knowing which is which.

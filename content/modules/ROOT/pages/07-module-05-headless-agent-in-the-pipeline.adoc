@@ -1,0 +1,281 @@
+= Module 5: Headless agent in the pipeline
+include::partial$_attributes.adoc[]
+:source-highlighter: rouge
+:toc: macro
+:toclevels: 1
+
+// Attributes used by this module (injected by Showroom from lab user data):
+// {user}, {password}, {openshift_console_url}, {gitops_url}
+
+Modules 1 through 4 put a human in the loop. You sent a message, the agent replied in Mattermost, you read the result and moved on.
+
+Agents do not always wait to be asked. When the trigger is a pipeline event — a commit landing, a promotion gate opening, a scheduled policy check — the agent runs headless: no chat interface, no reply thread. The output is a Tekton result that downstream tasks can read, pipelines can route, and auditors can trace.
+
+The AgentWorks term for this is the headless runner, and it hands the caller an autonomy flag at trigger time. On this platform there is no flag, and that is the point of this module: what a headless run may do is the agent's *declared* standing policy — the same gateway, the same governed tools, the same audit line as every module before this one — and who may trigger a run at all is decided by namespace RBAC around a platform-managed credential. Both are declared configuration. Neither is a parameter the caller passes.
+
+Plan on 30 minutes: enable the gateway's HTTP face by pull request, trigger a headless PipelineRun that makes a governed tool call, and collect the reply as a named Tekton result.
+
+== Learning objectives
+
+By the end of this module, you'll be able to:
+
+* Enable an agent gateway's OpenAI-compatible HTTP surface declaratively, through the agent's own git repository
+* Explain where headless autonomy lives on this platform: the agent's declared policy plus namespace RBAC — not a runtime flag
+* Apply a self-contained PipelineRun that runs the agent headless and captures its reply as a structured result
+* Retrieve an agent's headless output from a named Tekton result after the run completes
+
+== Exercise 1: Give your agent an HTTP face — by pull request
+
+Your gateway serves chat channels today. Pipelines need HTTP. The runtime can serve an OpenAI-compatible surface (`/v1/chat/completions`) on the gateway port, but it is *off by default* — the credential that authenticates it is the gateway token from Module 3, and that token is operator-grade. Turning the surface on is therefore a declared, reviewable act — and it happens where everything about your agent happens: in its git repository.
+
+. Open your agent's repository in link:{gitea_url}[Gitea^] — or jump link:{gitea_url}/{user}-agents/{user}-assistant-agent-gitops/_edit/main/base/agentgateway.yaml[straight into the editor on `base/agentgateway.yaml`^] (sign in with your workshop account if asked — the *Sign in with Keycloak* button). Add two lines at the end of `spec`:
++
+[source,yaml]
+----
+  http:
+    chatCompletions: true
+----
++
+Commit directly to `main` with a message like `Enable the gateway HTTP face for pipeline callers`.
+
+. Watch the change arrive the same way Module 2's change did — GitOps reconciles, the operator re-renders the gateway's configuration, and the pod rolls because the *rendered configuration* changed:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pods -n {user}-agent-workspace \
+  -l agentoffice.ai/gateway={user}-assistant-gateway -w
+----
++
+Within about a minute you will see the running pod terminate and a fresh one reach `Running` (the link:{gitops_url}[OpenShift GitOps console^] shows the same convergence live). Press `Ctrl+C` once the new pod is `Running`.
++
+NOTE: If nothing rolls after a couple of minutes, the most likely cause is a quiet one: `chatCompletions` indented to the same depth as `http` instead of nested under it. The CRD's schema rejects the stray field, and your Application in OpenShift GitOps reports a *ComparisonError* naming it (`.spec.chatCompletions: field not declared in schema`) instead of syncing. Fix the indent — `chatCompletions:` two spaces deeper than `http:` — and the sync heals on the next commit.
+
+. Read the evidence chain, spec to pod:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get agentgateway {user}-assistant-gateway -n {user}-agent-workspace \
+  -o jsonpath='declared: {.spec.http}{"\n"}'
+oc get cm {user}-assistant-gateway-config -n {user}-agent-workspace \
+  -o go-template='{{index .data "openclaw.json"}}' | python3 -c \
+  "import sys,json;print('rendered:', json.load(sys.stdin)['gateway'].get('http'))"
+oc get deploy {user}-assistant-gateway -n {user}-agent-workspace \
+  -o go-template='rolled on: {{index .spec.template.metadata.annotations "agentoffice.ai/gateway-config-sha"}}{{"\n"}}'
+----
++
+Declared in git, rendered by the operator, rolled by a content hash. Nobody ran a restart command.
+
+. Before you call it, wait for the rollout to finish and prove the new face answers. A pipeline that fires while the pod is still rolling is refused -- the Service has no ready endpoint yet:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc rollout status deployment/{user}-assistant-gateway -n {user}-agent-workspace --timeout=180s
+oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw -- \
+  curl -s -o /dev/null -w 'HTTP %{http_code}\n' \
+  -H "Authorization: Bearer $(oc get secret {user}-assistant-gateway-token -n {user}-agent-workspace -o jsonpath='{.data.OPENCLAW_GATEWAY_TOKEN}' | base64 -d)" \
+  http://localhost:18789/v1/models
+----
++
+`successfully rolled out`, then `HTTP 200`: the OpenAI-compatible surface is up and the gateway token opens it. Anything else -- wait a few seconds and run it again; do not start Exercise 2 until it answers.
+
+. One more thing before you call it: who can actually *use* this new surface? The endpoint authenticates with the gateway token — the `OPENCLAW_GATEWAY_TOKEN` you met in Module 3's credential hunt. That token lives in a Secret in this namespace, and reading it requires this namespace's RBAC:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get secret {user}-assistant-gateway-token -n {user}-agent-workspace \
+  -o jsonpath='{.metadata.name} holds {.data.OPENCLAW_GATEWAY_TOKEN}' | cut -c1-60; echo "..."
+----
++
+That is the trust boundary, stated plainly: the token is operator-grade — a caller holding it speaks to the gateway with full standing — so *who may trigger headless runs* is exactly *who your namespace RBAC lets read that Secret*. Your pipeline can. Another attendee's pipeline cannot.
+
+=== Verify
+
+* `spec.http` on the AgentGateway reads `{"chatCompletions":true}`
+* The rendered config's `gateway.http` block shows the endpoint enabled
+* The AgentGateway pod rolled without any imperative command
+* The token Secret `{user}-assistant-gateway-token` exists in your namespace
+
+== Exercise 2: Trigger a headless PipelineRun
+
+A headless agent run is a standard Tekton PipelineRun with one task: POST a prompt to the gateway's new HTTP face, wait for the turn to finish, and write the reply to a Tekton result. Everything runs in your namespace, and the prompt deliberately asks for a *governed tool call* — the same `metrics_stuck_orders` your agent used in Module 4 — so the run leaves the same audit trail headless as it does in chat.
+
+. Save the manifest to disk. It is self-contained — the task is inline, the token arrives via `secretKeyRef`, and an empty or malformed reply fails the run loudly instead of reporting success with nothing in the result:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+cat <<'MANIFEST' > /tmp/headless-agent-run.yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: headless-agent-run-
+  labels:
+    lab-module: "05"
+spec:
+  timeouts:
+    pipeline: 10m
+  pipelineSpec:
+    results:
+      - name: agent-reply
+        description: The headless agent's response
+        value: $(tasks.ask-agent.results.reply)
+    tasks:
+      - name: ask-agent
+        taskSpec:
+          results:
+            - name: reply
+              description: The agent's reply to the headless prompt
+          steps:
+            - name: invoke
+              image: registry.access.redhat.com/ubi9/python-311:latest
+              env:
+                - name: GATEWAY_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {user}-assistant-gateway-token
+                      key: OPENCLAW_GATEWAY_TOKEN
+              script: |
+                #!/usr/bin/env python3
+                import json, os, sys, time, urllib.error, urllib.request
+                url = "http://{user}-assistant-gateway.{user}-agent-workspace.svc.cluster.local:18789/v1/chat/completions"
+                body = {
+                    "model": "openclaw/{user}-assistant",
+                    "messages": [{"role": "user", "content":
+                        "You are running headless inside a Tekton pipeline. "
+                        "Call your governed metrics_stuck_orders tool and reply "
+                        "with exactly one line: STUCK=<number>. No other text."}],
+                }
+                req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                    headers={"Authorization": "Bearer " + os.environ["GATEWAY_TOKEN"],
+                             "Content-Type": "application/json"})
+                # A gateway that is mid-rollout (Exercise 1 just changed its
+                # rendered config) refuses connections for a few seconds; a
+                # pipeline task waits for the service, it does not fail on it.
+                for attempt in range(1, 13):
+                    try:
+                        with urllib.request.urlopen(req, timeout=300) as res:
+                            reply = json.load(res)["choices"][0]["message"]["content"].strip()
+                        break
+                    except urllib.error.URLError as err:
+                        print(f"gateway not ready ({err.reason}); retry {attempt}/12 in 10s", flush=True)
+                        time.sleep(10)
+                else:
+                    sys.exit("ERROR: gateway did not accept the request after 2 minutes")
+                if not reply:
+                    sys.exit("ERROR: gateway returned an empty reply")
+                print("agent said:", reply)
+                with open("$(results.reply.path)", "w") as f:
+                    f.write(reply)
+MANIFEST
+echo "Manifest written."
+----
+
+. Create the run in your namespace and capture its generated name:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+PIPELINE_RUN=$(oc create -n {user}-agent-workspace \
+  -f /tmp/headless-agent-run.yaml -o name | cut -d/ -f2)
+echo "PipelineRun: ${PIPELINE_RUN}"
+----
+
+. Watch it reach a terminal state (allow a few minutes — the task image pulls on first use, and the agent turn itself takes 30–90 seconds):
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pipelinerun ${PIPELINE_RUN} -n {user}-agent-workspace -w
+----
++
+Press `Ctrl+C` once STATUS shows `Succeeded`.
+
+. Read the step log — the agent's one-line reply appears there before the task exits:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc logs -n {user}-agent-workspace \
+  -l tekton.dev/pipelineRun=${PIPELINE_RUN} --all-containers | tail -5
+----
+
+=== Verify
+
+* `oc create` prints a `headless-agent-run-XXXXX` name
+* The PipelineRun reaches `Succeeded`
+* The log shows `agent said: STUCK=<number>` — a governed tool call made with no human in the loop
+
+== Exercise 3: Read the pipeline result
+
+A log line is ephemeral. A Tekton result is a named, structured value attached to the PipelineRun — readable after the run completes, addressable by downstream tasks, queryable with `oc`. This is the difference between output you read once and output a pipeline can act on.
+
+. Read the result from the PipelineRun status:
++
+[source,bash,role="execute",subs="+attributes"]
+----
+oc get pipelinerun ${PIPELINE_RUN} -n {user}-agent-workspace \
+  -o jsonpath='{.status.results}' | python3 -m json.tool
+----
++
+The `agent-reply` entry's value is the line the agent produced — `STUCK=<number>`, straight from a governed tool call it made inside the pipeline. In a longer pipeline, `$(tasks.ask-agent.results.reply)` feeds the next task: a gate that blocks promotion when the number is too high, a notification, a ticket.
+
+. See the same run in the link:{openshift_console_url}[OpenShift Console^]. Signing in lands you in whichever perspective you used last -- often *Fleet Management*, which has no Pipelines menu. If you see it, open the perspective switcher at the top of the left menu and choose *Core platform*:
++
+image::module-05-console-fleet.png[The OpenShift Console opened in the Fleet Management perspective, with the perspective switcher at the top of the left menu highlighted,link=self,window=blank,width=520]
++
+image::module-05-console-core.png[The perspective switcher now reading Core platform,link=self,window=blank,width=520]
++
+In the *Core platform* perspective, expand *Pipelines* in the left menu and click *Pipelines*, open the *PipelineRuns* tab, and make sure the project selector at the top reads `{user}-agent-workspace`. Your run is in the list with its status and task bar:
++
+image::module-05-console-pipelineruns.png[The console's Pipelines page on the PipelineRuns tab with the project set to the agent workspace, showing the headless-agent-run entries,link=self,window=blank,width=700]
++
+Open the run: the task graph, its log, and the `agent-reply` result are all there.
+
+. Close the loop on governance — the headless turn crossed the same gateway as every chat turn, so the agent's own ledger recorded the governed call. As `admin-{user}` (Module 3's operator persona) you could read that ledger right now; the audit trail does not know or care that no human was in the loop.
+
+=== Verify
+
+* `.status.results` carries `agent-reply` with a non-empty `STUCK=<number>` value
+* The run appears in the OpenShift Console under your namespace
+
+== What just happened
+
+The same agent, the same gateway, the same governed tools, the same model — and no chat channel anywhere. The trigger was `oc create`. The output was a named Tekton result. The governed call landed in the same audit trail as Modules 3 and 4.
+
+Now place the autonomy decision, precisely, because this is where the AgentWorks comparison earns its keep. Their headless runner hands the *caller* an autonomy flag at trigger time. Here, the answer to "what may a headless run do" is: exactly what the agent's declared configuration already allows — its gateway, its governed tool grants, nothing more, because the run enters through the same door as every other turn. And the answer to "who may trigger one" is: whoever your namespace RBAC lets read the gateway token Secret. Both answers are declared objects in git; you changed one of them by pull request twenty minutes ago. A caller cannot pass a flag to widen an agent, because there is no flag to pass.
+
+One honest limit, stated as such: today the run *inherits* the agent's full standing policy — the platform does not yet narrow a specific PipelineRun to a subset of the agent's tools. The runtime supports scope-narrowing for identity-bearing callers, and wiring that to pipeline identities is a named roadmap item, not a demonstrated feature. What is demonstrated is the part that matters for trust: headless never means less governed.
+
+== Learning outcomes
+
+By completing this module, you should now understand:
+
+* ✓ How a gateway grows an HTTP face declaratively — a two-line spec change in the agent's own repo, rolled by a config hash
+* ✓ Where headless autonomy lives: the agent's declared policy for *what*, namespace RBAC on the token Secret for *who*
+* ✓ How to run an agent turn from a Tekton PipelineRun and fail loudly when the reply is not what the schema expects
+* ✓ How a governed tool call made headless lands in the same audit trail as one made in chat
+
+== Module summary
+
+You gave your agent an HTTP face by pull request, triggered a headless turn from a Tekton PipelineRun, watched it make a governed tool call with no human in the loop, and collected the answer as a named pipeline result. Module 6 puts this pattern to production work: a dev agent scaffolds a microservice, the supply chain builds and signs it, GitOps promotes it — and the requesting agent consumes the shipped service as a new governed tool.
+
+////
+AUTHOR NOTES (not rendered):
+
+VERIFIED LIVE 2026-08-27 (scratch pair on user3, operator v1.7.54): spec.http.chatCompletions
+renders gateway.http.endpoints.chatCompletions.enabled=true; the gateway-config-sha
+annotation rolls the pod on the base-render change; /v1/chat/completions answers in the
+OpenAI shape (choices[0].message.content) authenticated by OPENCLAW_GATEWAY_TOKEN from the
+<gateway>-token Secret; and this exact PipelineRun (image, secretKeyRef, script, result
+plumbing) ran to Succeeded with the reply landing in status.results — verified with a
+deterministic prompt, since the scratch agent carries no governed tools: the run reached
+Succeeded in ~30s with status.results carrying agent-reply=HEADLESS=OK, and teardown left
+zero pods. Hard-won contract detail: the model field MUST be the listed agent id
+"openclaw/<agent-name>" — the bare agent name returns HTTP 400 (found live, rounds C/D). The
+metrics_stuck_orders prompt gets its first live proof on the attendee walk (seat agents
+hold those tools; modules 3/4 ledgers prove they fire). The gitea-edit -> argo-sync path
+of exercise 1 exercises the same machinery module 2 verified.
+
+Assets needed (capture during a live walkthrough):
+. module-05-pipelinerun-logs.png — terminal with the run log showing "agent said: STUCK=..."
+. module-05-console-fleet.png — Console opened in the Fleet Management perspective, perspective switcher highlighted
+. module-05-console-core.png — perspective switcher set to Core platform
+. module-05-console-pipelineruns.png — Pipelines → Pipelines, PipelineRuns tab, project selector on the agent workspace (numbered callouts)
+. module-05-pipelinerun-result.png — Console PipelineRun Results tab with agent-reply
+////
