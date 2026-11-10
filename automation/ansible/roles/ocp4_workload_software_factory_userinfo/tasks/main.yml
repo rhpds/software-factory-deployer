@@ -1,0 +1,48 @@
+---
+# This role runs after ocp4_workload_software_factory completes.
+# It reads the ConfigMap created by that role and populates agnosticd_user_info
+# for each user so the official showroom role can deploy per-user lab guides.
+
+- name: Read software-factory-userinfo ConfigMap
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: "{{ software_factory_deployer_configmap_name }}"
+    namespace: "{{ software_factory_deployer_namespace }}"
+  register: r_userinfo_cm
+
+- name: Verify ConfigMap exists
+  ansible.builtin.fail:
+    msg: "software-factory-userinfo ConfigMap not found - ocp4_workload_software_factory must run first"
+  when: r_userinfo_cm.resources | length == 0
+
+- name: Extract userinfo data
+  ansible.builtin.set_fact:
+    _userinfo_data: "{{ r_userinfo_cm.resources[0].data }}"
+
+- name: Extract number of users
+  ansible.builtin.set_fact:
+    _num_users: "{{ _userinfo_data.num_users | int }}"
+
+- name: Populate agnosticd_user_info for each user
+  agnosticd_user_info:
+    user: "user{{ item }}"
+    data:
+      password: "{{ _userinfo_data['password_user' ~ item] }}"
+      showroom_url: "{{ _userinfo_data['showroom_url_user' ~ item] | default('') }}"
+      openshift_console_url: "{{ _userinfo_data.openshift_console_url }}"
+      openshift_api_url: "{{ _userinfo_data.openshift_api_url }}"
+      gitops_url: "{{ _userinfo_data.gitops_url }}"
+      gitea_url: "{{ _userinfo_data.gitea_url }}"
+      devhub_url: "{{ _userinfo_data.devhub_url }}"
+      mattermost_url: "{{ _userinfo_data.mattermost_url }}"
+      registry_url: "{{ _userinfo_data.registry_url }}"
+      cluster_domain: "{{ _userinfo_data.cluster_domain }}"
+      ocp_version: "{{ _userinfo_data.ocp_version }}"
+  loop: "{{ range(1, _num_users + 1) | list }}"
+  loop_control:
+    label: "user{{ item }}"
+
+- name: User data populated
+  ansible.builtin.debug:
+    msg: "Populated agnosticd_user_info for {{ _num_users }} users"
