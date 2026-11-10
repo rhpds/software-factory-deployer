@@ -1,6 +1,0 @@
----
-# Read the ConfigMap created by ocp4_workload_software_factory and populate agnosticd_user_info
-# This role bridges the software factory's userinfo ConfigMap to RHDP's user data system
-
-software_factory_deployer_namespace: software-factory-deployer
-software_factory_deployer_configmap_name: software-factory-userinfo
