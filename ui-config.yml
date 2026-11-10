@@ -1,0 +1,33 @@
+---
+type: showroom
+
+default_width: 35
+persist_url_state: true
+
+view_switcher:
+  enabled: true
+  default_mode: split
+
+# Terminal is same-origin (proxied at /terminal) so it embeds in the split
+# view. Every other surface sends X-Frame-Options: DENY/SAMEORIGIN — iframing
+# them renders a blank white pane, so those tabs are external: clicking one
+# opens the console in its own browser tab.
+tabs:
+  - name: Terminal
+    path: /terminal
+    port: 443
+  - name: OpenShift Console
+    url: '{openshift_console_url}'
+    external: true
+  - name: Developer Hub
+    url: '{devhub_url}'
+    external: true
+  - name: GitOps
+    url: '{gitops_url}'
+    external: true
+  - name: Gitea
+    url: '{gitea_url}'
+    external: true
+  - name: Mattermost
+    url: '{mattermost_url}'
+    external: true
