@@ -147,7 +147,7 @@ artifact_mirror_repos:
   - agent-office-skill-platform-incident-triage
   - agent-office-pack-supply-chain-ops
   - agent-office-skill-golden-path-service
-skopeo_image: quay.io/skopeo/stable@sha256:97772f3c64fd2fba720b2bafaf37239dc44d8b1c625c8383c64044832efe9ed9   # v1.22.3
+skopeo_image: quay.io/skopeo/stable@sha256:81a8d4265c339539cba229459fdc4cb3580e1d2c2cb4285271c75adaa0fcb9b5   # v1.24.1
 pipelines_namespace: openshift-pipelines
 cosign_python: python3                  # interpreter carrying cryptography + pynacl (the Job installs both)
 # The guide's defaults when the registry stage did not run (the reference cluster's values).
