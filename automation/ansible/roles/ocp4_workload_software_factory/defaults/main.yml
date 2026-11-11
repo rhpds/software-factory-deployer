@@ -149,7 +149,7 @@ artifact_mirror_repos:
   - agent-office-skill-golden-path-service
 skopeo_image: quay.io/skopeo/stable@sha256:81a8d4265c339539cba229459fdc4cb3580e1d2c2cb4285271c75adaa0fcb9b5   # v1.24.1
 pipelines_namespace: openshift-pipelines
-cosign_python: python3                  # interpreter carrying cryptography + pynacl (the Job installs both)
+cosign_python: python3.12               # interpreter carrying cryptography + pynacl (already in EE)
 # The guide's defaults when the registry stage did not run (the reference cluster's values).
 reference_artifact_registry: quay-quay-quay-test.apps.salamander.aimlworkbench.com
 reference_registry_org: deanpeterson
