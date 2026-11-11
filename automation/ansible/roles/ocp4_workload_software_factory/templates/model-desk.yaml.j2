@@ -83,3 +83,19 @@ spec:
   selector: { app: model-desk }
   ports:
     - { name: http, port: 4000, targetPort: 4000 }
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: model-desk
+  namespace: {{ model_desk_namespace }}
+  labels: { app: model-desk }
+spec:
+  to:
+    kind: Service
+    name: model-desk
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

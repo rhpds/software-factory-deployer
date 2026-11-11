@@ -72,8 +72,38 @@
       retries: 40
       delay: 10
 
-    # Note: Skipping HTTP health checks when running externally
-    # The Deployment readiness check above is sufficient to confirm the proxy is working
+    - name: brain | model-desk route host
+      ansible.builtin.set_fact:
+        _model_desk_host: "model-desk-{{ model_desk_namespace }}.{{ cluster_domain }}"
+
+    - name: brain | the proxy answers with the Claude models
+      ansible.builtin.uri:
+        url: "https://{{ _model_desk_host }}/v1/models"
+        headers: { Authorization: "Bearer {{ r_md_secret.resources[0].data.LITELLM_MASTER_KEY | b64decode }}" }
+        validate_certs: false
+      register: r_md_models
+      retries: 12
+      delay: 10
+      until: r_md_models.status == 200
+      no_log: true
+
+    - name: brain | one Claude turn through the proxy (the credential is live)
+      ansible.builtin.uri:
+        url: "https://{{ _model_desk_host }}/v1/chat/completions"
+        method: POST
+        headers: { Authorization: "Bearer {{ r_md_secret.resources[0].data.LITELLM_MASTER_KEY | b64decode }}" }
+        body_format: json
+        body:
+          model: "{{ claude_models[0].id }}"
+          max_tokens: 8
+          messages: [{ role: user, content: "Reply with the single word OK." }]
+        timeout: 90
+        validate_certs: false
+      register: r_md_turn
+      retries: 3
+      delay: 10
+      until: r_md_turn.status == 200
+      no_log: true
 
     - name: brain | key Secret the connection reads
       kubernetes.core.k8s:
