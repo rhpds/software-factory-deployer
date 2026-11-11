@@ -18,6 +18,9 @@
       spec: {}
   loop_control: { label: "{{ item.kind }}" }
 
+# Restart the Kuadrant operator (workaround for a reconciliation issue). Just delete the pod;
+# the ReplicaSet recreates it. No wait (deleting by label with a controller-recreated pod can
+# never satisfy "absent").
 - name: mcp | delete Kuadrant operator pod (workaround for reconciliation issue)
   kubernetes.core.k8s:
     api_version: v1
@@ -27,8 +30,6 @@
       - app=kuadrant
       - control-plane=controller-manager
     state: absent
-    wait: true
-    wait_timeout: 60
 
 - name: mcp | wait for Kuadrant to be ready
   kubernetes.core.k8s_info:
