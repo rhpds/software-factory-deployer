@@ -6,7 +6,7 @@
 
 - name: chat | facts
   ansible.builtin.set_fact:
-    _mm_api: "http://mattermost.mattermost.svc.cluster.local:8065/api/v4"
+    _mm_api: "https://{{ mattermost_host }}/api/v4"
     _gitea_api: "https://{{ gitea_host }}/api/v1"
 
 - name: chat | namespace
