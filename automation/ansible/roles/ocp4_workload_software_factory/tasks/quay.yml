@@ -346,13 +346,6 @@
         _cosign_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
       no_log: true
 
-    - name: quay | install cryptography and pynacl for cosign keypair generation
-      ansible.builtin.pip:
-        name:
-          - cryptography
-          - pynacl
-        state: present
-
     - name: quay | generate the key pair (cosign's own encrypted format, no cosign binary needed)
       ansible.builtin.command: "{{ cosign_python }} {{ role_path }}/files/cosign_keypair.py"
       environment: { COSIGN_PASSWORD: "{{ _cosign_password }}" }
