@@ -39,6 +39,7 @@
           {'name': 'openshift-gitops-operator', 'ns': 'openshift-operators', 'source': 'redhat-operators', 'channel': 'latest'},
           {'name': 'openshift-pipelines-operator-rh', 'ns': 'openshift-operators', 'source': 'redhat-operators', 'channel': 'latest'},
           {'name': 'rhods-operator', 'ns': 'redhat-ods-operator', 'source': 'redhat-operators', 'channel': 'stable'},
+          {'name': 'servicemeshoperator3', 'ns': 'openshift-operators', 'source': 'redhat-operators', 'channel': 'stable'},
           {'name': 'external-secrets-operator', 'ns': 'openshift-operators', 'source': 'community-operators', 'channel': eso_channel},
           {'name': 'mcp-gateway', 'ns': 'openshift-operators', 'source': 'redhat-operators', 'channel': mcp_gateway_channel}
         ] + ([{'name': 'quay-operator', 'ns': 'openshift-operators', 'source': 'redhat-operators', 'channel': quay_operator_channel}]
@@ -143,7 +144,7 @@
 # its owner's responsibility; blocking on it would turn their failure into ours.
 - name: operators | wait for the CSVs of the subscriptions this run created
   ansible.builtin.include_tasks: wait_for_csv.yml
-  loop: "{{ ['openshift-gitops-operator', 'openshift-pipelines-operator-rh', 'rhods-operator', 'quay-operator', 'agent-office-operator'] | reject('in', _installed_packages) | select('in', _subscriptions | map(attribute='name') | list) | list }}"
+  loop: "{{ ['openshift-gitops-operator', 'openshift-pipelines-operator-rh', 'rhods-operator', 'servicemeshoperator3', 'quay-operator', 'agent-office-operator'] | reject('in', _installed_packages) | select('in', _subscriptions | map(attribute='name') | list) | list }}"
   loop_control: { loop_var: csv_operator }
 
 - name: operators | wait for the sandboxed-containers CSV (its own namespace)
