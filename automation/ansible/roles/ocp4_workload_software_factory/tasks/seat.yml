@@ -27,9 +27,6 @@
       annotations:
         agentoffice.ai/user: "{{ _seat }}"
         agentoffice.ai/groups: "{{ workshop_attendees_group }},rhdp-attendees"
-    - name: "showroom-{{ _seat }}"
-      labels:
-        software-factory.redhat.com/seat: "{{ _seat }}"
   loop_control: { label: "{{ item.name }}" }
 
 - name: "seat {{ _seat }} | role bindings (attendee, terminal service account)"
@@ -46,8 +43,6 @@
       subjects: ["{{ item.subject }}"]
   loop:
     - { name: seat-user-admin, ns: "{{ _seat_ns }}", role: admin, subject: { kind: User, apiGroup: rbac.authorization.k8s.io, name: "{{ _seat }}" } }
-    - { name: seat-terminal-admin, ns: "{{ _seat_ns }}", role: admin, subject: { kind: ServiceAccount, name: showroom, namespace: "showroom-{{ _seat }}" } }
-    - { name: seat-owner-view, ns: "showroom-{{ _seat }}", role: view, subject: { kind: User, apiGroup: rbac.authorization.k8s.io, name: "{{ _seat }}" } }
   loop_control: { label: "{{ item.ns }}/{{ item.name }}" }
 
 - name: "seat {{ _seat }} | quota, limits, isolation"
