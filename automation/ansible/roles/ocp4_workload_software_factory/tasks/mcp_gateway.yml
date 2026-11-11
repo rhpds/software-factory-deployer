@@ -18,13 +18,14 @@
       spec: {}
   loop_control: { label: "{{ item.kind }}" }
 
-- name: mcp | restart Kuadrant operator (workaround for reconciliation issue)
+- name: mcp | delete Kuadrant operator pod (workaround for reconciliation issue)
   kubernetes.core.k8s:
     api_version: v1
     kind: Pod
-    namespace: kuadrant-system
+    namespace: openshift-operators
     label_selectors:
-      - app.kubernetes.io/name=kuadrant-operator
+      - app=kuadrant
+      - control-plane=controller-manager
     state: absent
     wait: true
     wait_timeout: 60
