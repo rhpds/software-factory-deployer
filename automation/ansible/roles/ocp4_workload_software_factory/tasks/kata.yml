@@ -22,8 +22,7 @@
     _kata_node: >-
       {{ (_kata_chosen | default([]) | first) if (_kata_chosen | default([]) | length > 0) else
          (r_kata_nodes.resources
-          | rejectattr('metadata.labels.node-role\.kubernetes\.io/control-plane', 'defined')
-          | rejectattr('metadata.labels.node-role\.kubernetes\.io/master', 'defined')
+          | json_query('[?!contains(keys(metadata.labels), `node-role.kubernetes.io/control-plane`) && !contains(keys(metadata.labels), `node-role.kubernetes.io/master`)]')
           | map(attribute='metadata.name')
           | reject('equalto', runner_node)
           | sort | last) }}
