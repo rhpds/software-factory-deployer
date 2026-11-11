@@ -41,8 +41,15 @@
         labels: { app.kubernetes.io/managed-by: software-factory-deployer }
       roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "{{ item.role }}" }
       subjects: ["{{ item.subject }}"]
+  # The seat-terminal-admin binding lives in the seat namespace and grants admin to the
+  # Showroom pod's ServiceAccount. In self-service seat_mode the lab terminal runs as this
+  # SA (there is no oc login), so it needs admin on the seat namespace to read Secrets,
+  # exec into the agent pods, and apply Skills/PipelineRuns per the guide. RBAC bindings do
+  # not require their subject (or its namespace) to exist yet, so this is safe to create
+  # before the official ocp4_workload_showroom role creates showroom-<guid>-<seat>/showroom.
   loop:
     - { name: seat-user-admin, ns: "{{ _seat_ns }}", role: admin, subject: { kind: User, apiGroup: rbac.authorization.k8s.io, name: "{{ _seat }}" } }
+    - { name: seat-terminal-admin, ns: "{{ _seat_ns }}", role: admin, subject: { kind: ServiceAccount, name: showroom, namespace: "showroom-{{ guid }}-{{ _seat }}" } }
   loop_control: { label: "{{ item.ns }}/{{ item.name }}" }
 
 - name: "seat {{ _seat }} | quota, limits, isolation"
