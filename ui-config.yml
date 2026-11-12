@@ -17,17 +17,12 @@ tabs:
     path: /terminal
     port: 443
   - name: OpenShift Console
-    url: '{openshift_console_url}'
-    external: true
+    url: 'https://console-openshift-console.${DOMAIN}'
   - name: Developer Hub
-    url: '{devhub_url}'
-    external: true
+    url: 'https://devhub.${DOMAIN}'
   - name: GitOps
-    url: '{gitops_url}'
-    external: true
+    url: 'https://openshift-gitops-server-openshift-gitops.${DOMAIN}'
   - name: Gitea
-    url: '{gitea_url}'
-    external: true
+    url: 'https://gitea-gitea.${DOMAIN}'
   - name: Mattermost
-    url: '{mattermost_url}'
-    external: true
+    url: 'https://mattermost-mattermost.${DOMAIN}'
