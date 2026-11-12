@@ -58,7 +58,7 @@
 - **Name:** `software-factory-deployer`
 - **Namespace:** `openshift-gitops`
 - **Repo:** https://github.com/rhpds/software-factory-deployer
-- **Branch:** `field-content`
+- **Branch:** `main`
 - **Path:** `automation/gitops/bootstrap`
 
 **Passes Helm Values:**
@@ -94,7 +94,7 @@ litemaas:
 ```yaml
 - name: https://github.com/rhpds/software-factory-deployer.git#/automation/ansible
   type: git
-  version: field-content
+  version: main
 ```
 
 **Execution Flow:**
@@ -155,7 +155,7 @@ data:
 **Configuration:**
 ```yaml
 ocp4_workload_showroom_content_git_repo: https://github.com/rhpds/software-factory-deployer.git
-ocp4_workload_showroom_content_git_repo_ref: field-content
+ocp4_workload_showroom_content_git_repo_ref: main
 ocp4_workload_showroom_content_antora_playbook: site.yml
 ocp4_workload_showroom_terminal_type: showroom
 ```
