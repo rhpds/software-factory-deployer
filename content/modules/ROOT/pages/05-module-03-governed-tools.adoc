@@ -222,12 +222,7 @@ ifeval::["{seat_mode}" == "self-service"]
 . Now the payoff, at your own blast radius. The operator persona for your workspace is a *namespace-scoped* identity — full admin inside `{user}-agent-workspace` and no access anywhere else — and your terminal already runs as it: the workbench's service account. Nothing to switch.
 endif::[]
 ifeval::["{seat_mode}" != "self-service"]
-. Now the payoff, at your own blast radius. You hold a *second identity*: `admin-{user}` — a namespace-scoped operator persona with full admin inside `{user}-agent-workspace` and no access anywhere else. Same password as your seat. Switch to it:
-+
-[source,bash,role="execute",subs="+attributes"]
-----
-oc login -u admin-{user} {openshift_api_url}
-----
+. Now the payoff, at your own blast radius. Inside `{user}-agent-workspace` you are the operator: `{user}` holds full admin in that one namespace and nothing in `agent-office`. Nothing to switch.
 endif::[]
 
 . Prove the persona's shape in two commands:
@@ -257,15 +252,6 @@ oc exec deploy/{user}-assistant-gateway -n {user}-agent-workspace -c openclaw --
 +
 Your counts will differ — this ledger is *your* agent's short life so far. The census tells the whole module in a few lines: built-ins (`exec`, `web_fetch`) ran ungoverned from the runtime; every governed call is namespaced `governed__` — those crossed the gateway on your credential, and the calls you triggered this exercise are in the count. This ledger is yours because it lives at your blast radius. Its platform-side twin — the gateway's access-log line for those same `governed__` calls — lives in the shared stream you were denied above, shown on the shared screen during the session.
 
-ifeval::["{seat_mode}" != "self-service"]
-. Return to your seat identity — the rest of the workshop runs as `{user}`:
-+
-[source,bash,role="execute",subs="+attributes"]
-----
-oc login -u {user} {openshift_api_url}
-----
-endif::[]
-
 // TODO screenshot (capture during the live walkthrough, then restore):
 // image::module-03-gateway-log.png[Terminal output showing MCP gateway access-log lines with POST /mcp entries and 200 status,link=self,window=blank,width=700]
 
@@ -278,9 +264,8 @@ ifeval::["{seat_mode}" == "self-service"]
 * The tool-call ledger shows `governed__gitea_*` entries alongside the ungoverned built-ins
 endif::[]
 ifeval::["{seat_mode}" != "self-service"]
-* As `admin-{user}`: `can-i` answers `yes` for your workspace and `no` for `agent-office`
+* As `{user}`: `can-i` answers `yes` for your workspace and `no` for `agent-office`
 * The tool-call ledger shows `governed__gitea_*` entries alongside the ungoverned built-ins
-* You are signed back in as `{user}`
 endif::[]
 
 == Questions this module raises

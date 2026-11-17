@@ -88,7 +88,7 @@ ifeval::["{seat_mode}" == "self-service"]
 You also hold a second, narrower identity — an operator persona with full admin inside your own `{user}-agent-workspace` namespace and no access anywhere else: your terminal's service account, already signed in. Module 3 puts it to work.
 endif::[]
 ifeval::["{seat_mode}" != "self-service"]
-You also hold a second, narrower identity: `admin-{user}` — an operator persona with full admin inside your own `{user}-agent-workspace` namespace and no access anywhere else, using the same password. Module 3 puts it to work.
+Inside your own `{user}-agent-workspace` namespace you are also the operator: `{user}` holds full admin there and cannot read the platform's `agent-office` namespace. Module 3 puts that boundary to work.
 endif::[]
 
 === Verify your access
