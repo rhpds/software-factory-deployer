@@ -38,7 +38,7 @@ You work on a shared, multinode OpenShift {ocp_version} cluster with per-attende
 |Turns AgentWorkstation, AgentGateway, and Skill custom resources into running agents. An agent is a declared object, not a pet process.
 
 |MCP gateway
-|Governed tool access, built on Red Hat Connectivity Link. Every governed tool call crosses it for per-call authorization and an audit line. Credentials are platform-managed on both patterns it governs: injected gateway-side for platform tools, or carried by the agent as its own platform-minted, self-expiring seat badge. Module 3 walks both.
+|Governed tool access, built on Red Hat Connectivity Link. Every governed tool call crosses it for per-call authorization and an audit line. Credentials are platform-managed on both patterns it governs: injected gateway-side for platform tools, or carried by the agent as its own platform-minted seat badge. Module 3 walks both.
 
 |Red Hat build of Keycloak
 |Per-attendee identity. Your login is a Keycloak identity, and the same sign-on works across every console in this environment.

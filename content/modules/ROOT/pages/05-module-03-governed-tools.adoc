@@ -60,7 +60,7 @@ ifeval::["{seat_mode}" == "self-service"]
 . *The platform minted your seat credential at signup.* When your workbench was created, the platform issued a Gitea token scoped to your own Gitea identity and placed it in your workspace. You never typed it and never will; the agent consumes it by reference.
 endif::[]
 ifeval::["{seat_mode}" != "self-service"]
-. *Vault is the source of truth.* The platform established a Gitea OAuth2 grant for your seat and holds its refresh token in the cluster's Vault, alongside the short-lived access token your runtime actually uses. You cannot see Vault (that is the point), but you can see the machinery that drinks from it.
+. *The platform minted your seat credential when it built this environment.* It issued a Gitea token for your own Gitea user and placed it in your workspace. You never typed it and never will; the agent consumes it by reference.
 endif::[]
 
 ifeval::["{seat_mode}" == "self-service"]
@@ -74,14 +74,14 @@ oc get secret {user}-gitea-token -n {user}-agent-workspace
 One Secret, one key (`GITEA_TOKEN`), scoped to your seat's own Gitea identity — the runtime reads it by reference, as the next step shows.
 endif::[]
 ifeval::["{seat_mode}" != "self-service"]
-. *External Secrets Operator keeps your workspace copy faithful to Vault:*
+. *The credential is in your workspace as a Secret:*
 +
 [source,bash,role="execute",subs="+attributes"]
 ----
-oc get externalsecret {user}-gitea-token -n {user}-agent-workspace
+oc get secret {user}-gitea-token -n {user}-agent-workspace
 ----
 +
-`STORE vault-cluster`, `REFRESH 1m`, `STATUS SecretSynced`, `READY True`. Two clocks, and keeping them apart is the point: the `1m` here is the *delivery* loop — every minute ESO checks Vault and reconciles the Secret, which is why a change anywhere upstream lands in your workspace within sixty seconds. The *badge itself* changes on a different clock entirely — a fresh access token every thirty minutes from the platform refresher, each one self-expiring within the hour, which you will see in step 6. Delivery is continuous; the credential is deliberately not.
+One Secret that holds your seat's Gitea token under the key `GITEA_TOKEN`, issued to your own Gitea user. The runtime reads it by reference, as the next step shows.
 endif::[]
 
 . *Git declares the reference, never the value:*
@@ -104,7 +104,7 @@ oc exec $(oc get pods -n {user}-agent-workspace -o name | grep {user}-assistant 
 +
 The `cut` keeps the *names* and drops the values — you are in a workshop room, and half the point of this module is that credentials do not get printed onto shared screens. Two results are always there: `OPENCLAW_GATEWAY_TOKEN` (the runtime's own control-plane plumbing) and `GITEA_TOKEN` — your seat's credential, exactly where the chain delivered it. A third appears when your brain is a *model connection* (every brain on the hiring menu is one): `MODELCONN_<CONNECTION>_API_KEY` — the connection's name in capitals with dashes as underscores — the model lane's key, which the operator projects from the platform's admin namespace into a gateway-owned Secret in your workspace — the runtime reads it by reference like everything else, and Module 7 swaps the whole connection without touching this pod. Note what is absent: no platform git identity, and nothing at all for tools like `ops-metrics` or `golden-path-probe`, whose credentials are injected on the gateway side and exist nowhere in your namespace.
 
-. *The badge and the vault keys.* Your agent is a coding agent — its skills (including `find-token`, later this module) run real scripts, so it can read its own environment, including `GITEA_TOKEN`. That is not a leak; it is the design: this token is the agent's *own delegated badge* — it acts as {user}, inside {user}'s org, so an agent reading its own badge can reach exactly what its owner already owns. The badge self-expires within the hour, is refreshed every thirty minutes, is revocable by simply not refreshing, and is platform-scoped per seat. Red-team it yourself in Mattermost:
+. *The badge and the vault keys.* Your agent is a coding agent — its skills (including `find-token`, later this module) run real scripts, so it can read its own environment, including `GITEA_TOKEN`. That is not a leak; it is the design: this token is the agent's *own delegated badge* — it acts as {user}, inside {user}'s org, so an agent reading its own badge can reach exactly what its owner already owns. The badge is issued by the platform, is scoped to your seat, and only the platform can replace or revoke it. Red-team it yourself in Mattermost:
 +
 [source,text]
 ----
@@ -128,14 +128,7 @@ ifeval::["{seat_mode}" == "self-service"]
 . *The badge is issued by the platform — and the agent holds no pen to renew it.* On a self-service workbench your badge is a Gitea token minted for your identity at signup: it lives in exactly one Secret, the runtime reads it by reference, and nothing in your namespace can mint, extend, or replace it — the platform's Gitea admin identity that issued it never enters a seat. Revocation is therefore a platform action, not a hunt: resetting or removing a seat revokes its token, and a fresh seat gets a fresh one. Ask your agent for `gitea_get_me` and it answers as {user} — through a badge it can use but never forge.
 endif::[]
 ifeval::["{seat_mode}" != "self-service"]
-. *The badge decays — and the agent holds no pen to renew it.* This is the discipline that makes holding a credential safe: what your agent possesses is a *wasting asset*, and now literally one. Your seat's badge is a Gitea OAuth2 access token that *self-expires within the hour* — the very same credential lifecycle the platform's own git identity runs, no longer a lesser substitute for it. Every thirty minutes a platform refresher exchanges a held refresh token for a fresh access token and writes Vault; within a minute the sync loop lands it in your Secret, and the operator renders the new value straight into your agent's tool configuration, which the runtime *hot-reloads in place*. No pod restart, no pause: the credential changes under a running agent and its next `gitea_*` call simply uses the new one. The agent cannot refresh, extend, or re-mint its own badge — the refresh token lives only in the platform's Vault, never in your namespace, and you already proved no minting credential exists where the agent lives. Revoking, then, is not an action but an *omission*: stop the refresher and every seat's access token ages out within the hour, all at once, with nothing to explicitly revoke. Continued access is never a state; it is a standing decision, renewed on a cadence, by machinery the workload cannot touch. Watch the credential live through a refresh with the runtime never restarting:
-+
-[source,bash,subs="+attributes"]
-----
-oc get pods -n {user}-agent-workspace -w
-----
-+
-When the refresher runs — every thirty minutes, or on demand during the session — your AgentGateway pod is *not* replaced: same pod name, `RESTARTS` still `0`, its age climbing straight through the boundary. Ask your agent for `gitea_get_me` on either side of a refresh and it answers as {user} both times, on two different tokens, without the runtime under it ever moving. The old workshop compromise — accept a token with no clock of its own, because self-expiring credentials meant restarting a seat twice an hour — is gone: churn-free delivery buys the stronger credential at no cost to the running agent.
+. *The badge is issued by the platform, and the agent holds no pen to renew it.* Your badge is a Gitea token the platform minted for your Gitea user when it built this environment. The runtime reads it by reference, and nothing in your namespace can mint, extend, or replace it: the platform's Gitea admin identity that issued it never enters a seat. Revocation is therefore a platform action, not a hunt: the platform deletes the token in Gitea and the badge stops working. Ask your agent for `gitea_get_me` and it answers as {user}, through a badge it can use but never forge.
 endif::[]
 
 // TODO screenshot (capture during the live walkthrough, then restore):
@@ -149,7 +142,7 @@ ifeval::["{seat_mode}" == "self-service"]
 * Your workspace holds exactly one seat credential, `{user}-gitea-token`, with a single `GITEA_TOKEN` key
 endif::[]
 ifeval::["{seat_mode}" != "self-service"]
-* The ExternalSecret in your workspace is `SecretSynced`/`Ready` against the `vault-cluster` store, delivering on a one-minute sync loop (the badge itself changes when the refresher renews it every thirty minutes, each token self-expiring within the hour)
+* Your workspace holds one seat credential, the Secret `{user}-gitea-token`, with your Gitea token under the key `GITEA_TOKEN`
 endif::[]
 * The AgentWorkstation spec declares `envFromSecret: {user}-gitea-token` — a reference, never a value
 * The `env` grep shows the platform-placed tokens — the gateway token, your badge, and the projected model-lane key when your brain is a model connection — and nothing for the gateway-injected tools
