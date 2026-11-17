@@ -152,7 +152,7 @@ ifeval::["{seat_mode}" == "self-service"]
 *factory-sso* and sign in with the account you registered.
 endif::[]
 ifeval::["{seat_mode}" != "self-service"]
-*workshop* and sign in as {user} — or *factory-sso* to use the same single sign-on the other surfaces use.
+*{openshift_idp}* and sign in as {user} with the password above. If no choice appears and the Keycloak sign-in page opens directly, sign in there: it is the same provider.
 endif::[]
 
 . Click the *Developer Hub* tab — also its own browser tab — and sign in with the same credentials.

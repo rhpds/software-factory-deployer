@@ -96,9 +96,7 @@ ifeval::["{seat_mode}" == "self-service"]
 image::module-01-login-factory-sso.png[The OpenShift "Log in with" page listing kube:admin, htpasswd, workshop and factory-sso, with factory-sso highlighted as the provider to choose,link=self,window=blank,width=700]
 endif::[]
 ifeval::["{seat_mode}" != "self-service"]
-. Open link:{gitops_url}[OpenShift GitOps^] and click *Log in via OpenShift*. The OpenShift login page offers several identity providers -- choose *workshop* and sign in with your OpenShift credentials (`{user}` / `{password}`). The other providers belong to the platform team and will not know you.
-+
-image::module-01-login-workshop.png[The OpenShift "Log in with" page listing kube:admin, htpasswd, workshop and factory-sso, with workshop highlighted as the provider to choose,link=self,window=blank,width=700]
+. Open link:{gitops_url}[OpenShift GitOps^] and click *Log in via OpenShift*. If the OpenShift login page offers a choice of identity providers, choose *{openshift_idp}*. Sign in as `{user}` with password `{password}`.
 endif::[]
 
 . Find the Application for your agent (search for `{user}-assistant`) and open it. Watch the resource tree while it syncs: the namespace, the AgentWorkstation resource, and the supporting objects appear as OpenShift GitOps applies them.
@@ -254,7 +252,7 @@ Assets needed (capture against the live environment):
 
 . content/modules/ROOT/assets/images/module-01-agent-constellation.png - the composed hire after Suggest: refine chat (opener + input) above the constellation (brain ring, skill-artifact wedges with a 15%-live example, memory docs, new team), identity below (CAPTURED 2026-08-31 against the live seat, binders v0.0.26)
 . content/modules/ROOT/assets/images/module-01-login-factory-sso.png - OpenShift "Log in with" provider page, factory-sso highlighted (self-service seats)
-. content/modules/ROOT/assets/images/module-01-login-workshop.png - OpenShift "Log in with" provider page, workshop highlighted (fixed seats)
+. content/modules/ROOT/assets/images/module-01-login-workshop.png - no longer shown: it pictures the reference cluster's four providers, and an ordered cluster offers one (rhbk)
 . content/modules/ROOT/assets/images/module-01-chat-signin.png - the workshop chat (Mattermost front) sign-in page
 . content/modules/ROOT/assets/images/module-01-gitea-keycloak.png - Gitea sign-in page, "Sign in with keycloak" highlighted (self-service seats)
 . content/modules/ROOT/assets/images/module-01-gitops-application.png - OpenShift GitOps Application view for the agent, resource tree Synced and Healthy

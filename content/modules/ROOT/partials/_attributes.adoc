@@ -10,6 +10,10 @@
 // seat_mode: "self-service" (set by the factory hub's provisioner in user data) or "seat" (default: instructor/RHDP-provisioned).
 // Pages use ifeval on it so a reader only ever sees instructions for their own seat.
 :seat_mode: seat
+// openshift_idp: the identity provider an ordered (RHDP) cluster shows on the OpenShift login page.
+// The base workload ocp4_workload_authentication (Keycloak provider) names it rhbk in its OAuth
+// template; this is the one line to change if the base ever renames it.
+:openshift_idp: rhbk
 :artifact_registry: quay-quay-quay-test.apps.salamander.aimlworkbench.com
 :registry_org: deanpeterson
 // ^ the registry namespace (organization) holding the skill artifacts and the seats' images.
