@@ -122,6 +122,8 @@ when prompted:
 ----
 oc login -u {user} {openshift_api_url}
 ----
++
+If `oc` says the server uses a certificate signed by an unknown authority and asks `Use insecure connections? (y/n):`, answer `y`. The API address of a lab cluster presents the cluster's own certificate, which the terminal does not know.
 
 . Verify who you are now:
 +
