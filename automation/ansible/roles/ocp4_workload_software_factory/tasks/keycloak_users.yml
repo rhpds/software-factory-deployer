@@ -193,6 +193,30 @@
         status_code: [204]
         validate_certs: false
 
+    # Red Hat build of Keycloak 26.6.8 and later accept a token on the Admin REST API only when
+    # the client holds the built-in client scope kc-admin-api (upgrade notes, "Admin REST API now
+    # enforces an audience check"). Without it every call answers 401 Unauthorized, whatever roles
+    # the service account has: Developer Hub then copies no users and nobody can sign in to it
+    # (found on an order running 26.6.9, 16 November 2026). Older versions have no such scope and
+    # need nothing, so the loop below is empty there. These tasks come after the client update
+    # above on purpose: that update writes back the client as it was read earlier in this stage.
+    - name: keycloak | client scopes of the realm
+      ansible.builtin.uri:
+        url: "{{ keycloak_url }}/admin/realms/{{ keycloak_realm }}/client-scopes"
+        headers: "{{ _kc_h }}"
+        validate_certs: false
+      register: r_kc_scopes
+
+    - name: keycloak | the Developer Hub client may call the Admin REST API (client scope kc-admin-api)
+      ansible.builtin.uri:
+        url: "{{ keycloak_url }}/admin/realms/{{ keycloak_realm }}/clients/{{ (r_kc_clients.results | selectattr('item', 'equalto', 'rhdh') | first).json[0].id }}/default-client-scopes/{{ item.id }}"
+        method: PUT
+        headers: "{{ _kc_h }}"
+        status_code: [204]
+        validate_certs: false
+      loop: "{{ r_kc_scopes.json | selectattr('name', 'equalto', 'kc-admin-api') | list }}"
+      loop_control: { label: "{{ item.name }}" }
+
     - name: keycloak | client secrets
       ansible.builtin.uri:
         url: "{{ keycloak_url }}/admin/realms/{{ keycloak_realm }}/clients/{{ item.json[0].id }}/client-secret"
@@ -202,6 +226,42 @@
       loop_control: { label: "{{ item.item }}" }
       register: r_kc_secrets
       no_log: true
+
+    # Prove the outcome, not the settings: sign in the way Developer Hub's catalog provider does
+    # and read the realm's user count. A refusal here stops the order with the reason, instead of
+    # an order that reports success while no one can sign in to Developer Hub.
+    - name: keycloak | sign in as the Developer Hub client
+      ansible.builtin.uri:
+        url: "{{ keycloak_url }}/realms/{{ keycloak_realm }}/protocol/openid-connect/token"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: client_credentials
+          client_id: rhdh
+          client_secret: "{{ (r_kc_secrets.results | selectattr('item.item', 'equalto', 'rhdh') | first).json.value }}"
+        validate_certs: false
+      register: r_kc_rhdh_token
+      no_log: true
+
+    - name: keycloak | read the user count as the Developer Hub client
+      ansible.builtin.uri:
+        url: "{{ keycloak_url }}/admin/realms/{{ keycloak_realm }}/users/count"
+        headers: { Authorization: "Bearer {{ r_kc_rhdh_token.json.access_token }}" }
+        status_code: [200, 401, 403]
+        validate_certs: false
+      register: r_kc_rhdh_count
+      no_log: true
+
+    - name: keycloak | the Developer Hub client can read the realm's users
+      ansible.builtin.assert:
+        that: r_kc_rhdh_count.status == 200
+        fail_msg: >-
+          Keycloak answered {{ r_kc_rhdh_count.status }} when the Developer Hub client asked for the
+          user count of realm {{ keycloak_realm }}. Developer Hub would copy no users and every
+          sign-in to it would fail. 401: the client lacks the client scope kc-admin-api (needed
+          from Keycloak 26.6.8). 403: its service account lacks the realm-management roles
+          view-users, query-users, query-groups.
+        success_msg: "the Developer Hub client reads the users of realm {{ keycloak_realm }} ({{ r_kc_rhdh_count.json | default('?') }} users)"
 
     - name: keycloak | store the Developer Hub OIDC client (same Secret name as the reference cluster)
       kubernetes.core.k8s:
