@@ -227,7 +227,7 @@ image::module-05-console-pipelineruns.png[The console's Pipelines page on the Pi
 +
 Open the run: the task graph, its log, and the `agent-reply` result are all there.
 
-. Close the loop on governance — the headless turn crossed the same gateway as every chat turn, so the agent's own ledger recorded the governed call. As `admin-{user}` (Module 3's operator persona) you could read that ledger right now; the audit trail does not know or care that no human was in the loop.
+. Close the loop on governance — the headless turn crossed the same gateway as every chat turn, so the agent's own ledger recorded the governed call. As the operator of your own workspace (Module 3) you could read that ledger right now; the audit trail does not know or care that no human was in the loop.
 
 === Verify
 
